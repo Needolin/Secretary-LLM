@@ -1,4 +1,935 @@
-<html>
+<!doctype html>
 
+<html lang="ru">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Секретарь — расписания</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+
+<body>
+    <div class="app">
+        <aside class="sidebar">
+
+            <a class="brand" href="{{ url_for('index') }}">
+                <span class="logo">С</span>
+                <span>
+                    <strong>Секретарь</strong>
+                    <small>Ваше время под контролем</small>
+                </span>
+            </a>
+
+            <div class="side-heading">
+                <span>Мои расписания</span>
+                <a class="plus" href="#create-schedule" title="Создать расписание">+</a>
+            </div>
+
+            <nav class="schedule-list" aria-label="Список расписаний">
+                {% for schedule in schedules %}
+                    <a 
+                        class="schedule-item {% if selected and schedule.id == selected.id %}active{% endif %}" 
+                        href="{{ url_for('index', schedule_id=schedule.id, period=schedule.period) }}"
+                    >
+
+                        <span class="schedule-icon">
+                            {% if loop.index0 % 3 == 0 %}▦{% elif loop.index0 % 3 == 1 %}◷{% else %}▤{% endif %}
+                        </span>
+
+                        <span class="schedule-meta">
+                            <span class="schedule-name">{{ schedule.name }}</span>
+                            <span class="schedule-period">{{ period_labels.get(schedule.period, schedule.period) }}</span>
+                        </span>
+
+                    </a>
+
+                {% else %}
+                    <p class="muted side-empty">Расписаний пока нет. Создайте первое ниже.</p>
+                {% endfor %}
+
+            </nav>
+
+            <section id="create-schedule" class="create-box">
+
+                <h3>Новое расписание</h3>
+
+                <form action="{{ url_for('create_schedule_form') }}" method="post">
+                    <label for="schedule-name">Название</label>
+
+                    <input 
+                        id="schedule-name"
+                        name="name" 
+                        required maxlength="100" 
+                        placeholder="Например, Учёба"
+                    >
+
+                    <label for="schedule-period">Формат</label>
+                    <select id="schedule-period" name="period">
+                        <option value="Day">День</option>
+                        <option value="Week" selected>Неделя</option>
+                        <option value="Month">Месяц (28 дней)</option>
+                    </select>
+
+                    <button class="button-primary full" type="submit">Создать</button>
+                </form>
+
+            </section>
+
+            <div class="connection">
+                <i></i>
+                <span>Локальный сервер Flask</span>
+            </div>
+
+        </aside>
+
+        <main class="main">
+
+            <header class="topbar">
+                <div>
+                    <p class="eyebrow">ПЛАНИРОВАНИЕ</p>
+                    <h1>{{ selected.name if selected else 'Моё расписание' }}</h1>
+                    <p class="muted">{% if selected %}Формат: {{ period_labels.get(period, period) }} · Событий: {{ event_count }} · Задач: {{ task_count }}{% else %}Выберите расписание или создайте новое.{% endif %}</p>
+                </div>
+
+                <div class="avatar" title="Секретарь">С</div>
+            </header>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+
+            <div class="flash-stack">
+
+                {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+                {% endfor %}
+
+            </div>
+
+            {% endif %}
+            {% endwith %}
+
+            <section class="assistant panel">
+                <div class="assistant-title">
+                    <div class="spark">✦</div>
+                    <div>
+                        <h2>Привет! Что сделаем?</h2>
+                        <p class="muted">Поле команды пока демонстрационное: обработчик естественного языка ещё не подключён. Задачи можно проверять через API TaskAgent.</p>
+                    </div>
+                </div>
+
+                {% if selected %}
+
+                <form action="{{ url_for('command_form') }}" method="post" class="command-form">
+                    <input type="hidden" name="schedule_id" value="{{ selected.id }}">
+                    <input type="hidden" name="period" value="{{ period }}">
+                    <input name="command" required maxlength="2000" placeholder="Обработка свободного текста будет подключена позже">
+                    <button class="button-primary" type="submit">Отправить <span>➜</span></button>
+                </form>
+
+                {% else %}
+
+                <p class="empty-note">Сначала создайте расписание — тогда можно будет отправлять команды.</p>
+
+                {% endif %}
+
+                <small class="hint">
+                    Обработка команд: <code>{{ backend_url }}</code>
+                </small>
+
+            </section>
+
+            <section class="schedule-section">
+
+                <div class="section-head">
+
+                    <div>
+                        <p class="eyebrow">ОБЗОР</p>
+                        <h2>Временная шкала</h2>
+                    </div>
+
+                    {% if selected %}
+
+                    <nav class="view-switch" aria-label="Период">
+
+                        {% for key, label in period_labels.items() %}
+
+                        <a 
+                            class="view-button {% if period == key %}active{% endif %}" 
+                            href="{{ url_for('index', schedule_id=selected.id, period=key) }}"
+                        >{{ label }}</a>
+
+                        {% endfor %}
+
+                    </nav>
+
+                    {% endif %}
+
+                </div>
+
+                <div
+                    class="timeline panel"
+                    id="timeline"
+                    data-schedule-id="{{ selected.id if selected else '' }}"
+                    data-schedule-period="{{ schedule_period if selected else period }}"
+                    data-view-period="{{ period }}"
+                >
+                    {% if selected %}
+                    <div class="timeline-header">
+                        <div class="timeline-label-spacer" aria-hidden="true"></div>
+                        <div class="scale" aria-label="Время суток">
+                            <span style="left: 25%">06:00</span>
+                            <span style="left: 50%">12:00</span>
+                            <span style="left: 75%">18:00</span>
+                            <span style="left: 91.667%">22:00</span>
+                        </div>
+                    </div>
+
+                    <div class="timeline-rows {% if period == 'Month' %}month-rows{% endif %}">
+                        {% for row in rows %}
+                        <div class="timeline-row {% if period == 'Month' %}month-row{% endif %}" data-row-index="{{ row.index }}">
+                            <span class="row-label" title="{{ row.label }}">
+                                <span class="row-label-full">{{ row.label }}</span>
+                                <span class="row-label-short">{{ row.short_label }}</span>
+                            </span>
+                            <div class="row-track" aria-label="{{ row.label }}">
+                                <span class="track-line" aria-hidden="true"></span>
+                                {% for event in row.events %}
+                                <button
+                                    type="button"
+                                    class="timeline-item {% if event.mode == 'range' %}timeline-span{% else %}timeline-square{% endif %} {% if event.type == 'task' %}task-item{% endif %}"
+                                    style="left: {{ event.left_percent }}%;{% if event.mode == 'range' %} width: {{ event.width_percent }}%;{% endif %}"
+                                    data-mode="{{ event.mode }}"
+                                    data-left-percent="{{ event.left_percent }}"
+                                    data-width-percent="{{ event.width_percent }}"
+                                    data-start-minute="{{ event.get('start_time_in_minutes') if event.get('start_time_in_minutes') is not none else '' }}"
+                                    data-end-minute="{{ event.get('end_time_in_minutes') if event.get('end_time_in_minutes') is not none else '' }}"
+                                    data-day-index="{{ event.get('day_index', row.index if row.label != 'Без дня' else '') }}"
+                                    data-id="{{ event.id }}"
+                                    data-type="{{ event.type or 'event' }}"
+                                    data-title="{{ event.title }}"
+                                    data-start="{{ event.start_label }}"
+                                    data-end="{{ event.end_label }}"
+                                    data-description="{{ event.description or '' }}"
+                                    data-deadline="{{ event.deadline_label }}"
+                                    aria-label="{{ event.title }}; начало: {{ event.start_label or 'не задано' }}; конец: {{ event.end_label or 'не задано' }}"
+                                >
+                                    {% if event.mode == 'range' %}
+                                    <span class="timeline-span-line" aria-hidden="true"></span>
+                                    {% else %}
+                                    <span class="timeline-square-shape" aria-hidden="true"></span>
+                                    {% endif %}
+                                </button>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <!-- Вертикальные направляющие выбранного события -->
+                    <div class="timeline-guides" id="timeline-guides" aria-hidden="true" hidden>
+                        <span class="timeline-guide timeline-guide-start"
+                              id="timeline-guide-start"></span>
+                        <span class="timeline-guide timeline-guide-end"
+                              id="timeline-guide-end"></span>
+                    </div>
+
+                    <div class="timeline-tooltip" id="timeline-tooltip" role="tooltip" hidden></div>
+                    <div class="timeline-editor" id="timeline-editor" role="dialog" aria-label="Редактирование события" hidden></div>
+                    <div id="timeline-status" role="status" hidden></div>
+                    {% else %}
+                    <div class="empty">Создайте расписание, чтобы увидеть его здесь.</div>
+                    {% endif %}
+                </div>
+                <p class="legend"><span class="legend-event"><i></i> Событие</span><span class="legend-task"><i></i> Задача</span><span class="legend-marker"><i></i> Квадрат — время не назначено или задана только одна граница</span></p>
+
+            </section>
+
+            {% if selected %}
+
+            <section class="event-editor panel">
+
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">РЕДАКТИРОВАНИЕ</p>
+                        <h2>Добавить событие вручную</h2>
+                    </div>
+                </div>
+
+                <form action="{{ url_for('add_event_form') }}" method="post" class="event-form">
+
+                    <input type="hidden" name="schedule_id" value="{{ selected.id }}">
+
+                    <div class="field wide">
+                        <label for="event-title">Название события</label>
+                        <input id="event-title" name="title" required maxlength="160" placeholder="Например, Спорт">
+                    </div>
+
+                    <div class="field wide">
+                        <label for="event-description">Описание (необязательно)</label>
+                        <input id="event-description" name="description" maxlength="500" placeholder="Подготовить форму и воду">
+                    </div>
+
+                    {% if schedule_period != 'Day' %}
+
+                    <div class="field">
+
+                        <label for="event-day">
+
+                            {% if schedule_period == 'Week' %}День недели{% else %}День месяца{% endif %}
+
+                        </label>
+
+                        <select id="event-day" name="day_index">
+
+                            {% for option in day_options %}
+
+                            <option value="{{ option.value }}">
+
+                                {{ option.label }}
+
+                            </option>
+
+                            {% endfor %}
+
+                        </select>
+
+                    </div>
+
+                    {% else %}
+
+                    <input type="hidden" name="day_index" value="0">
+
+                    {% endif %}
+
+                    <div class="field">
+                        <label for="event-start">Начало (необязательно)</label>
+                        <input id="event-start" name="start_time" type="time" value="10:00">
+                    </div>
+
+                    <div class="field">
+                        <label for="event-end">Конец (необязательно)</label>
+                        <input id="event-end" name="end_time" type="time" value="11:00">
+                    </div>
+
+                    <div class="field submit-field">
+                        <label>&nbsp;</label>
+                        <button class="button-primary full" type="submit">Добавить событие</button>
+                    </div>
+
+                </form>
+
+                <p class="fine-print">Можно указать обе границы, только начало, только конец или оставить оба поля пустыми. В последнем случае событие отображается квадратом без назначенного времени.</p>
+
+            </section>
+
+            <section class="danger-zone">
+
+                <form action="{{ url_for('delete_schedule_form', schedule_id=selected.id) }}" method="post" onsubmit="return confirm('Удалить расписание и все его события?');">
+                    <button class="delete-button" type="submit">Удалить это расписание</button>
+                </form>
+
+            </section>
+
+            {% endif %}
+
+        </main>
+
+    </div>
+
+<script>
+(() => {
+    const timeline = document.getElementById("timeline");
+    const tooltip = document.getElementById("timeline-tooltip");
+    const editor = document.getElementById("timeline-editor");
+    const guides = document.getElementById("timeline-guides");
+    const guideStart = document.getElementById("timeline-guide-start");
+    const guideEnd = document.getElementById("timeline-guide-end");
+
+    let selectedItem = null;
+
+    if (!timeline || !tooltip || !editor || !timeline.dataset.scheduleId) return;
+
+    const scheduleId = Number(timeline.dataset.scheduleId);
+    const schedulePeriod = timeline.dataset.schedulePeriod || "Week";
+    const dayCount = ({ Day: 1, Week: 7, Month: 28 })[schedulePeriod] || 7;
+    const tracks = [...timeline.querySelectorAll(".row-track")];
+    const dayNames = schedulePeriod === "Day"
+        ? ["Сегодня"]
+        : schedulePeriod === "Week"
+            ? ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+            : Array.from({ length: 28 }, (_, index) => `День ${index + 1}`);
+
+    let activeSignature = "";
+    let dragState = null;
+    let suppressClick = null;
+
+    const intOrNull = (value) => value === "" || value === undefined || value === null ? null : Number(value);
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+    function hideTooltip() {
+        tooltip.hidden = true;
+        activeSignature = "";
+    }
+
+    function hideGuides() {
+        guides.hidden = true;
+
+        if (selectedItem) {
+            selectedItem.classList.remove("is-selected");
+            selectedItem = null;
+        }
+    }
+
+    function showGuides(item) {
+        hideGuides();
+
+        // Направляющие нужны для отрезков с началом и концом.
+        if (item.dataset.mode !== "range") return;
+
+        selectedItem = item;
+        item.classList.add("is-selected");
+
+        // ВАЖНО: сначала показываем слой. У элемента с hidden
+        // getBoundingClientRect() возвращает нулевой прямоугольник,
+        // из-за чего направляющие смещались на ширину области меток.
+        guides.hidden = false;
+
+        // Берём фактический цвет полосы события, поэтому обе направляющие
+        // совпадают с цветом выбранного элемента (например, обе жёлтые у задачи).
+        const eventLine = item.querySelector(".timeline-span-line");
+        const eventColor = eventLine
+            ? getComputedStyle(eventLine).backgroundColor
+            : getComputedStyle(item).color;
+        guides.style.setProperty("--guide-color", eventColor);
+
+        const layerRect = guides.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+
+        // Обе координаты считаются относительно реально видимого слоя,
+        // который растянут на всю карточку таймлайна.
+        guideStart.style.left = `${itemRect.left - layerRect.left}px`;
+        guideEnd.style.left = `${itemRect.right - layerRect.left}px`;
+    }
+
+    function closeEditor() {
+        editor.hidden = true;
+        editor.classList.remove("is-collapsed");
+        editor.replaceChildren();
+        hideGuides();
+
+        if (selectedItem) {
+            selectedItem.classList.remove("is-selected");
+            selectedItem = null;
+        }
+
+    }
+
+    function describeTime(item) {
+        const start = item.dataset.start || "";
+        const end = item.dataset.end || "";
+        if (start && end) return `Начало: ${start} · конец: ${end}`;
+        if (start) return `Начало: ${start} · конец не задан`;
+        if (end) return `Начало не задано · конец: ${end}`;
+        return "Время не назначено";
+    }
+
+    function renderTooltip(items) {
+        tooltip.replaceChildren();
+        items.forEach((item, index) => {
+            if (index > 0) {
+                const divider = document.createElement("div");
+                divider.className = "tooltip-divider";
+                tooltip.append(divider);
+            }
+            const card = document.createElement("div");
+            card.className = "tooltip-item";
+            const kind = document.createElement("span");
+            kind.className = `tooltip-kind ${item.dataset.type === "task" ? "task-kind" : "event-kind"}`;
+            kind.textContent = item.dataset.type === "task" ? "Задача" : "Событие";
+            const heading = document.createElement("strong");
+            heading.textContent = item.dataset.title || "Без названия";
+            const time = document.createElement("span");
+            time.className = "tooltip-time";
+            time.textContent = describeTime(item);
+            card.append(kind, heading, time);
+            if (item.dataset.deadline) {
+                const deadline = document.createElement("small");
+                deadline.textContent = `Срок: ${item.dataset.deadline}`;
+                card.append(deadline);
+            }
+            if (item.dataset.description) {
+                const details = document.createElement("small");
+                details.textContent = item.dataset.description;
+                card.append(details);
+            }
+            tooltip.append(card);
+        });
+        tooltip.hidden = false;
+    }
+
+    function placeFloating(element, clientX, clientY) {
+        if (element.hidden) return;
+        const margin = 10;
+        const rect = element.getBoundingClientRect();
+        const left = clamp(clientX - rect.width / 2, margin, window.innerWidth - rect.width - margin);
+        const above = clientY - rect.height - 14;
+        const top = above >= margin ? above : clamp(clientY + 14, margin, window.innerHeight - rect.height - margin);
+        element.style.left = `${left}px`;
+        element.style.top = `${top}px`;
+    }
+
+    function itemsAtPointer(track, pointerEvent) {
+        const trackRect = track.getBoundingClientRect();
+        const centerY = trackRect.top + trackRect.height / 2;
+        if (Math.abs(pointerEvent.clientY - centerY) > 13) return [];
+        if (pointerEvent.clientX < trackRect.left || pointerEvent.clientX > trackRect.right) return [];
+        const localX = pointerEvent.clientX - trackRect.left;
+        return [...track.querySelectorAll(".timeline-item")].filter((item) => {
+            const left = Number(item.dataset.leftPercent || 0) / 100 * trackRect.width;
+            const width = Number(item.dataset.widthPercent || 0) / 100 * trackRect.width;
+            if (item.dataset.mode === "range") return localX >= left - 4 && localX <= left + width + 4;
+            return Math.abs(localX - left) <= 10;
+        }).sort((a, b) => Number(a.dataset.leftPercent || 0) - Number(b.dataset.leftPercent || 0));
+    }
+
+    function updateTooltip(items, event) {
+        if (dragState?.dragging || !editor.hidden) return hideTooltip();
+        if (!items.length) return hideTooltip();
+        const signature = items.map((item) => `${item.dataset.type}:${item.dataset.id}:${item.dataset.title}`).join("|");
+        if (signature !== activeSignature) {
+            activeSignature = signature;
+            renderTooltip(items);
+        }
+        placeFloating(tooltip, event.clientX, event.clientY);
+    }
+
+    tracks.forEach((track) => {
+        track.addEventListener("pointermove", (event) => updateTooltip(itemsAtPointer(track, event), event));
+        track.addEventListener("pointerleave", () => { if (!dragState) hideTooltip(); });
+    });
+
+    function rowIndexForItem(item) {
+        const row = item.closest(".timeline-row");
+        return Number(row?.dataset.rowIndex ?? 0);
+    }
+
+    function getValidTracks() {
+        return [...timeline.querySelectorAll(".timeline-row")]
+            .filter((row) => Number(row.dataset.rowIndex) < dayCount && row.querySelector(".row-track"))
+            .map((row) => ({ row, track: row.querySelector(".row-track"), index: Number(row.dataset.rowIndex) }));
+    }
+
+    function trackAtY(clientY) {
+        const candidates = getValidTracks();
+        if (!candidates.length) return null;
+        return candidates.reduce((best, current) => {
+            const rect = current.row.getBoundingClientRect();
+            const center = rect.top + rect.height / 2;
+            const bestRect = best.row.getBoundingClientRect();
+            const bestCenter = bestRect.top + bestRect.height / 2;
+            return Math.abs(clientY - center) < Math.abs(clientY - bestCenter) ? current : best;
+        });
+    }
+
+    function nearestHour(clientX, track, maxMinute = 1380) {
+        const rect = track.getBoundingClientRect();
+        if (rect.width <= 0) return 0;
+        const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+        const rawMinutes = ratio * 1440;
+        const snapped = Math.round(rawMinutes / 60) * 60;
+        return clamp(snapped, 0, maxMinute);
+    }
+
+    function setPreview(item, track, rowIndex, startMinute, endMinute) {
+        const leftLocal = startMinute !== null
+            ? startMinute - rowIndex * 1440
+            : endMinute !== null
+                ? endMinute - rowIndex * 1440
+                : 720;
+        const leftPercent = clamp(leftLocal / 1440 * 100, 0, 100);
+        item.style.left = `${leftPercent}%`;
+        item.dataset.leftPercent = String(leftPercent);
+        if (startMinute !== null && endMinute !== null && endMinute > startMinute) {
+            const widthPercent = (endMinute - startMinute) / 1440 * 100;
+            item.style.width = `${widthPercent}%`;
+            item.dataset.widthPercent = String(widthPercent);
+            item.dataset.mode = "range";
+            item.classList.remove("timeline-square");
+            item.classList.add("timeline-span");
+            item.querySelector(".timeline-span-line") || item.replaceChildren(Object.assign(document.createElement("span"), { className: "timeline-span-line" }));
+        } else {
+            item.style.width = "15px";
+            item.dataset.widthPercent = "0";
+            item.dataset.mode = "marker";
+            item.classList.remove("timeline-span");
+            item.classList.add("timeline-square");
+            item.querySelector(".timeline-square-shape") || item.replaceChildren(Object.assign(document.createElement("span"), { className: "timeline-square-shape" }));
+        }
+        track.append(item);
+    }
+
+    function dragPreview(state, event) {
+        const target = trackAtY(event.clientY);
+        if (!target) return;
+        const originalStart = state.original.startMinute;
+        const originalEnd = state.original.endMinute;
+        const duration = originalStart !== null && originalEnd !== null ? originalEnd - originalStart : null;
+        let startMinute = originalStart;
+        let endMinute = originalEnd;
+        let localMinute;
+
+        if (duration !== null && duration > 0) {
+            const targetRect = target.track.getBoundingClientRect();
+            const pointerMinute = clamp((event.clientX - targetRect.left) / targetRect.width * 1440, 0, 1440);
+            // Keep the point where the segment was grabbed under the pointer.
+            const rawStart = pointerMinute - state.grabOffsetMinutes;
+            const maxStart = 1440 - duration;
+            const candidates = [];
+            const startSnap = Math.round(rawStart / 60) * 60;
+            if (startSnap >= 0 && startSnap <= maxStart) candidates.push(startSnap);
+            // If the end is closer to an hour mark, snap the end instead of the start.
+            const endSnapStart = Math.round((rawStart + duration) / 60) * 60 - duration;
+            if (endSnapStart >= 0 && endSnapStart <= maxStart) candidates.push(endSnapStart);
+            localMinute = candidates.length
+                ? candidates.sort((a, b) => Math.abs(a - rawStart) - Math.abs(b - rawStart))[0]
+                : clamp(rawStart, 0, maxStart);
+            startMinute = target.index * 1440 + localMinute;
+            endMinute = startMinute + duration;
+        } else if (originalStart !== null) {
+            localMinute = nearestHour(event.clientX, target.track, 1380);
+            startMinute = target.index * 1440 + localMinute;
+        } else if (originalEnd !== null) {
+            localMinute = nearestHour(event.clientX, target.track, 1440);
+            endMinute = target.index * 1440 + localMinute;
+        } else if (Math.abs(event.clientX - state.startX) > 14) {
+            // Если у маркера не было времени, горизонтальное перемещение назначает начало.
+            localMinute = nearestHour(event.clientX, target.track, 1380);
+            startMinute = target.index * 1440 + localMinute;
+        }
+
+        state.target = target;
+        state.next = { startMinute, endMinute, dayIndex: target.index };
+        setPreview(state.item, target.track, target.index, startMinute, endMinute);
+    }
+
+    function showError(message) {
+        const status = document.getElementById("timeline-status");
+        if (!status) return;
+        status.textContent = message;
+        status.hidden = false;
+        status.classList.add("error");
+    }
+
+    async function persistChanges(item, changes) {
+        const url = `/api/schedules/${scheduleId}/items/${Number(item.dataset.id)}`;
+        const response = await fetch(url, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(changes),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "Не удалось сохранить изменения.");
+        return result.item;
+    }
+
+    document.addEventListener("pointerdown", (event) => {
+        if (editor.hidden || editor.contains(event.target)) return;
+        if (event.target.closest?.(".timeline-item")) return;
+        closeEditor();
+    });
+
+    document.querySelectorAll(".timeline-item").forEach((item) => {
+        item.addEventListener("pointerdown", (event) => {
+            if (event.button !== undefined && event.button !== 0) return;
+            if (!editor.hidden) closeEditor();
+            hideTooltip();
+            const track = item.closest(".row-track");
+            const originalStartMinute = intOrNull(item.dataset.startMinute);
+            const originalEndMinute = intOrNull(item.dataset.endMinute);
+            const originalDayIndex = rowIndexForItem(item);
+            const trackRect = track.getBoundingClientRect();
+            const pointerLocalMinute = trackRect.width > 0
+                ? clamp((event.clientX - trackRect.left) / trackRect.width * 1440, 0, 1440)
+                : 0;
+            const duration = originalStartMinute !== null && originalEndMinute !== null
+                ? originalEndMinute - originalStartMinute
+                : null;
+            const startLocalMinute = originalStartMinute === null
+                ? 0
+                : originalStartMinute - originalDayIndex * 1440;
+            dragState = {
+                item,
+                startX: event.clientX,
+                startY: event.clientY,
+                lastX: event.clientX,
+                lastY: event.clientY,
+                dragging: false,
+                originalTrack: track,
+                grabOffsetMinutes: duration !== null && duration > 0
+                    ? clamp(pointerLocalMinute - startLocalMinute, 0, duration)
+                    : 0,
+                original: {
+                    startMinute: originalStartMinute,
+                    endMinute: originalEndMinute,
+                    dayIndex: originalDayIndex,
+                    left: item.style.left,
+                    width: item.style.width,
+                    leftPercent: item.dataset.leftPercent,
+                    widthPercent: item.dataset.widthPercent,
+                    mode: item.dataset.mode,
+                },
+                next: null,
+                target: null,
+            };
+        });
+
+        item.addEventListener("click", (event) => {
+            if (suppressClick && suppressClick.item === item && Date.now() < suppressClick.expires) {
+                suppressClick = null;
+                event.preventDefault();
+                return;
+            }
+            openEditor(item, event.clientX || item.getBoundingClientRect().left, event.clientY || item.getBoundingClientRect().top);
+        });
+
+        item.addEventListener("focus", () => {
+            if (!editor.hidden) return;
+            const rect = item.getBoundingClientRect();
+            const track = item.closest(".row-track");
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            updateTooltip(itemsAtPointer(track, { clientX: x, clientY: y }), { clientX: x, clientY: y });
+        });
+        item.addEventListener("blur", () => { if (editor.hidden) hideTooltip(); });
+    });
+
+    document.addEventListener("pointermove", (event) => {
+        if (!dragState) return;
+        dragState.lastX = event.clientX;
+        dragState.lastY = event.clientY;
+        if (!dragState.dragging && Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY) >= 5) {
+            dragState.dragging = true;
+            dragState.item.classList.add("is-dragging");
+            hideTooltip();
+        }
+        if (dragState.dragging) {
+            event.preventDefault();
+            dragPreview(dragState, event);
+        }
+    }, { passive: false });
+
+    document.addEventListener("pointerup", async (event) => {
+        if (!dragState) return;
+        const state = dragState;
+        dragState = null;
+        state.item.classList.remove("is-dragging");
+        if (!state.dragging) return;
+        suppressClick = { item: state.item, expires: Date.now() + 250 };
+
+        if (!state.target || !state.next) {
+            window.location.reload();
+            return;
+        }
+        const changes = { day_index: state.next.dayIndex };
+        if (state.original.startMinute !== null || state.next.startMinute !== null) {
+            changes.start_time_in_minutes = state.next.startMinute;
+        }
+        if (state.original.endMinute !== null || state.next.endMinute !== null) {
+            changes.end_time_in_minutes = state.next.endMinute;
+        }
+        try {
+            await persistChanges(state.item, changes);
+            window.location.reload();
+        } catch (error) {
+            showError(error.message);
+            window.setTimeout(() => window.location.reload(), 900);
+        }
+    });
+
+    function formatTimeForDay(absoluteMinute, dayIndex, isEnd = false) {
+        if (absoluteMinute === null) return "";
+        const local = absoluteMinute - dayIndex * 1440;
+        if (isEnd && local === 1440) return "24:00";
+        const safe = clamp(local, 0, 1439);
+        return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`;
+    }
+
+    function createField(labelText, name, value, placeholder = "") {
+        const wrapper = document.createElement("label");
+        wrapper.className = "timeline-editor-field";
+        const label = document.createElement("span");
+        label.textContent = labelText;
+        const input = document.createElement("input");
+        input.name = name;
+        input.type = "text";
+        input.value = value;
+        input.placeholder = placeholder;
+        wrapper.append(label, input);
+        return { wrapper, input };
+    }
+
+    function parseEditorTime(value, label, allow24) {
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        if (allow24 && trimmed === "24:00") return 1440;
+        const match = /^(\d{2}):(\d{2})$/.exec(trimmed);
+        if (!match) throw new Error(`${label}: введите время в формате ЧЧ:ММ.`);
+        const hour = Number(match[1]);
+        const minute = Number(match[2]);
+        if (hour > 23 || minute > 59) throw new Error(`${label}: недопустимое время.`);
+        return hour * 60 + minute;
+    }
+
+    function openEditor(item, clientX, clientY) {
+        if (selectedItem) {
+            selectedItem.classList.remove("is-selected");
+        }
+
+        selectedItem = item;
+        item.classList.add("is-selected");
+
+        hideTooltip();
+        showGuides(item);
+        editor.classList.remove("is-collapsed");
+        editor.replaceChildren();
+        const heading = document.createElement("strong");
+        heading.className = "timeline-editor-title";
+        heading.textContent = `Редактировать: ${item.dataset.title || "Без названия"}`;
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "timeline-editor-close";
+        close.textContent = "×";
+        close.setAttribute("aria-label", "Закрыть");
+        close.addEventListener("click", closeEditor);
+
+        const collapse = document.createElement("button");
+        collapse.type = "button";
+        collapse.className = "timeline-editor-collapse";
+        collapse.textContent = "Свернуть";
+        collapse.setAttribute("aria-expanded", "true");
+
+        collapse.addEventListener("click", () => {
+            const isCollapsed = editor.classList.toggle("is-collapsed");
+
+            collapse.textContent = isCollapsed ? "Развернуть" : "Свернуть";
+            collapse.setAttribute("aria-expanded", String(!isCollapsed));
+
+            placeFloating(editor, clientX, clientY);
+        });
+
+        const top = document.createElement("div");
+        top.className = "timeline-editor-head";
+        top.append(heading, collapse, close);
+
+        const form = document.createElement("form");
+        form.className = "timeline-editor-form";
+        const currentRow = rowIndexForItem(item);
+        const dayField = document.createElement("label");
+        dayField.className = "timeline-editor-field";
+        const dayLabel = document.createElement("span");
+        dayLabel.textContent = schedulePeriod === "Day" ? "День" : schedulePeriod === "Week" ? "День недели" : "День месяца";
+        const daySelect = document.createElement("select");
+        daySelect.name = "day_index";
+        for (let i = 0; i < dayCount; i++) {
+            const option = document.createElement("option");
+            option.value = String(i);
+            option.textContent = dayNames[i];
+            daySelect.append(option);
+        }
+        const savedDay = intOrNull(item.dataset.dayIndex);
+        const initialDay = currentRow < dayCount
+            ? currentRow
+            : savedDay !== null && savedDay >= 0 && savedDay < dayCount ? savedDay : 0;
+        daySelect.value = String(initialDay);
+        dayField.append(dayLabel, daySelect);
+
+        const titleField = createField("Название", "title", item.dataset.title || "");
+        const startMinute = intOrNull(item.dataset.startMinute);
+        const endMinute = intOrNull(item.dataset.endMinute);
+        const startField = createField("Начало", "start", formatTimeForDay(startMinute, currentRow), "ЧЧ:ММ");
+        const endField = createField("Конец", "end", formatTimeForDay(endMinute, currentRow, true), "ЧЧ:ММ или 24:00");
+        const hint = document.createElement("small");
+        hint.className = "timeline-editor-hint";
+        hint.textContent = "Оставь время пустым, чтобы убрать эту границу. Для конца дня можно указать 24:00.";
+        const message = document.createElement("p");
+        message.className = "timeline-editor-message";
+        message.hidden = true;
+
+        const actions = document.createElement("div");
+        actions.className = "timeline-editor-actions";
+        const save = document.createElement("button");
+        save.type = "submit";
+        save.className = "button-primary";
+        save.textContent = "Сохранить";
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "delete-button";
+        remove.textContent = "Удалить";
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "button-secondary";
+        cancel.textContent = "Отмена";
+        cancel.addEventListener("click", closeEditor);
+        actions.append(save, remove, cancel);
+        form.append(dayField, titleField.wrapper, startField.wrapper, endField.wrapper, hint, message, actions);
+        editor.append(top, form);
+        editor.hidden = false;
+        placeFloating(editor, clientX, clientY);
+        titleField.input.focus({ preventScroll: true });
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            message.hidden = true;
+            try {
+                const dayIndex = Number(daySelect.value);
+                const startLocal = parseEditorTime(startField.input.value, "Начало", false);
+                const endLocal = parseEditorTime(endField.input.value, "Конец", true);
+                if (startLocal !== null && endLocal !== null && endLocal <= startLocal) {
+                    throw new Error("Время окончания должно быть позже начала.");
+                }
+                const changes = {
+                    title: titleField.input.value.trim(),
+                    day_index: dayIndex,
+                    start_time_in_minutes: startLocal === null ? null : dayIndex * 1440 + startLocal,
+                    end_time_in_minutes: endLocal === null ? null : dayIndex * 1440 + endLocal,
+                };
+                if (!changes.title) throw new Error("Название не должно быть пустым.");
+                save.disabled = true;
+                const result = await persistChanges(item, changes);
+                if (!result) throw new Error("Сервер не вернул обновлённую запись.");
+                window.location.reload();
+            } catch (error) {
+                message.textContent = error.message;
+                message.hidden = false;
+            } finally {
+                save.disabled = false;
+            }
+        });
+
+        remove.addEventListener("click", async () => {
+            if (!window.confirm(`Удалить «${item.dataset.title || "Без названия"}»?`)) return;
+            remove.disabled = true;
+            try {
+                const response = await fetch(`/api/schedules/${scheduleId}/items/${Number(item.dataset.id)}`, { method: "DELETE" });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(result.error || "Не удалось удалить запись.");
+                window.location.reload();
+            } catch (error) {
+                message.textContent = error.message;
+                message.hidden = false;
+                remove.disabled = false;
+            }
+        });
+    }
+
+    window.addEventListener("scroll", () => { hideTooltip(); if (!editor.hidden) closeEditor(); }, { passive: true });
+    window.addEventListener("resize", () => { hideTooltip(); if (!editor.hidden) closeEditor(); });
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeEditor(); hideTooltip(); } });
+})();
+</script>
+
+</body>
 
 </html>
