@@ -26,6 +26,13 @@ class OrchestratorAgent:
         if not command:
             return {"status": "error", "message": "Введите команду."}
 
+        result = self.task_agent.run({
+            "action": "list",
+            "schedule_id": data.get("schedule_id"),
+            "item_type": "all",
+        })
+
+        print(result["items"])
         # Не вызываем TaskAgent с выдуманным action: свободный текст ещё не преобразуется
         # в структурированные действия. Для проверки CRUD есть /api/task-agent.
         return {

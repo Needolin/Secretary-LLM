@@ -10,8 +10,8 @@
         "title": "Спорт",
         "description": "",
         "day_index": 0,
-        "start_time_in_minutes": 180,
-        "end_time_in_minutes": 660
+        "start_time_in_minutes": 0,
+        "end_time_in_minutes": 480
       },
       {
         "id": 3,
@@ -31,8 +31,8 @@
         "title": "ТЫЦ",
         "description": "п",
         "day_index": 0,
-        "start_time_in_minutes": 780,
-        "end_time_in_minutes": 840
+        "start_time_in_minutes": 1200,
+        "end_time_in_minutes": 1260
       }
     ]
   },

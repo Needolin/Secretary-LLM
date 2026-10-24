@@ -51,7 +51,7 @@ class TaskAgent:
             "update": self.update_task,
             "delete": self.delete_task,
             "get": self.get_task,
-            "list": self.list_tasks,
+            "list": self.list_items,
         }
         handler = actions.get(action)
         if handler is None:
@@ -140,11 +140,43 @@ class TaskAgent:
         tasks = self._filter_tasks(database.get_all_tasks(schedule_id), data)
         return {"success": True, "tasks": tasks, "count": len(tasks)}
 
-    def list_tasks(self, data: dict[str, Any]) -> dict[str, Any]:
-        # Если schedule_id не указан, возвращаются задачи из всех расписаний.
+    def list_items(self, data: dict[str, Any]) -> dict[str, Any]:
         schedule_id = self._get_schedule_id(data, required=False)
-        tasks = self._filter_tasks(database.get_all_tasks(schedule_id), data)
-        return {"success": True, "tasks": tasks, "count": len(tasks)}
+
+        item_type = data.get("item_type", "task")
+
+        if item_type not in {"task", "event", "all"}:
+            raise ValueError(
+                "item_type должен быть task, event или all."
+            )
+
+        items = database.get_schedule_items(
+            schedule_id=schedule_id,
+            item_type=item_type,
+        )
+
+        # Фильтрация по статусу и приоритету применима к задачам.
+        if item_type == "task":
+            items = self._filter_tasks(items, data)
+
+        tasks = [
+            item for item in items
+            if item.get("type") == "task"
+        ]
+
+        events = [
+            item for item in items
+            if item.get("type") == "event"
+        ]
+
+        return {
+            "success": True,
+            "item_type": item_type,
+            "items": items,
+            "tasks": tasks,
+            "events": events,
+            "count": len(items),
+        }
 
     @staticmethod
     def _filter_tasks(tasks: list[dict[str, Any]], data: dict[str, Any]) -> list[dict[str, Any]]:

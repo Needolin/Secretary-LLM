@@ -478,6 +478,34 @@ def get_all_tasks(schedule_id: int | None = None) -> list[dict[str, Any]]:
                     tasks.append({**item, "schedule_id": schedule.get("id")})
         return tasks
 
+def get_schedule_items(
+    schedule_id: int | None = None,
+    item_type: str = "all",
+) -> list[dict[str, Any]]:
+    """Возвращает задачи, события или все элементы расписания."""
+
+    if item_type not in {"task", "event", "all"}:
+        raise ValueError(
+            "item_type должен быть task, event или all."
+        )
+
+    with _LOCK:
+        schedules = _load_unlocked()
+
+        if schedule_id is not None:
+            schedules = [_find_schedule(schedules, schedule_id)]
+
+        items = []
+
+        for schedule in schedules:
+            for item in schedule.get("events", []):
+                if item_type == "all" or item.get("type") == item_type:
+                    items.append({
+                        **item,
+                        "schedule_id": schedule["id"],
+                    })
+
+        return items
 
 def get_task(schedule_id: int, task_id: int) -> dict[str, Any]:
     with _LOCK:
