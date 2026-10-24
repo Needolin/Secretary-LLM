@@ -14,6 +14,3 @@ class PlannerAgent:
         print(data)
 
         return {"agent": "PlannerAgent", "status": "received"}
-
-    def get_answer(self) -> str:
-        return "PlannerAgent готов к работе."

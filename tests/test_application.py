@@ -53,7 +53,10 @@ class DatabaseAndTaskAgentTests(unittest.TestCase):
         })
         task_id = created["task"]["id"]
 
-        listed = self.agent.run({"action": "list", "schedule_id": schedule_id, "priority": "high"})
+        listed = self.agent.run({
+            "action": "get", "schedule_id": schedule_id,
+            "item_type": "task", "priority": "high",
+        })
         self.assertTrue(listed["success"])
         self.assertEqual(listed["count"], 1)
 
@@ -70,7 +73,9 @@ class DatabaseAndTaskAgentTests(unittest.TestCase):
 
         deleted = self.agent.run({"action": "delete", "schedule_id": schedule_id, "task_id": task_id})
         self.assertTrue(deleted["success"])
-        self.assertEqual(self.agent.run({"action": "list", "schedule_id": schedule_id})["count"], 0)
+        self.assertEqual(self.agent.run({
+            "action": "get", "schedule_id": schedule_id, "item_type": "task",
+        })["count"], 0)
 
     def test_validation_errors(self) -> None:
         schedule_id = database.create_schedule("Работа")["id"]
@@ -157,6 +162,29 @@ class FlaskEndpointTests(unittest.TestCase):
         })
         self.assertEqual(created_task.status_code, 200)
         task_id = created_task.get_json()["task"]["id"]
+        database.add_event(schedule_id, {
+            "title": "Лекция API",
+            "start_time_in_minutes": 600,
+            "end_time_in_minutes": 660,
+        })
+
+        # TaskAgent.get по умолчанию возвращает и задачи, и события.
+        all_items = self.client.post("/api/task-agent", json={
+            "action": "get", "schedule_id": schedule_id,
+        })
+        self.assertEqual(all_items.status_code, 200)
+        self.assertEqual(all_items.get_json()["count"], 2)
+        self.assertEqual(
+            {item["type"] for item in all_items.get_json()["items"]},
+            {"task", "event"},
+        )
+
+        only_events = self.client.post("/api/task-agent", json={
+            "action": "get", "schedule_id": schedule_id, "item_type": "event",
+        })
+        self.assertEqual(only_events.status_code, 200)
+        self.assertEqual(only_events.get_json()["count"], 1)
+        self.assertEqual(only_events.get_json()["items"][0]["title"], "Лекция API")
 
         listed = self.client.get(f"/api/tasks?schedule_id={schedule_id}")
         self.assertEqual(listed.status_code, 200)
@@ -164,7 +192,8 @@ class FlaskEndpointTests(unittest.TestCase):
 
         listed_events = self.client.get(f"/api/schedules/{schedule_id}/events")
         self.assertEqual(listed_events.status_code, 200)
-        self.assertEqual(listed_events.get_json(), [])
+        self.assertEqual(len(listed_events.get_json()), 1)
+        self.assertEqual(listed_events.get_json()[0]["title"], "Лекция API")
 
         updated = self.client.post("/api/task-agent", json={
             "action": "update", "schedule_id": schedule_id,

@@ -480,7 +480,7 @@ def api_delete_timeline_item(schedule_id: int, item_id: int):
 
 
 @app.get("/api/tasks")
-def api_list_tasks():
+def api_get_tasks():
     raw_schedule_id = request.args.get("schedule_id")
     try:
         schedule_id = int(raw_schedule_id) if raw_schedule_id is not None else None

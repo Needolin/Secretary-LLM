@@ -190,28 +190,83 @@ self.task_agent.run({
 ```
 В `schedule_id` укажите существующее расписание. Приоритеты: `low`, `medium`, `high`. Статусы: `pending`, `in_progress`, `completed`. Если статус не указан, будет `pending`, если приоритет не указан — `medium`.
 
-### Другие действия TaskAgent
+### Получить данные через TaskAgent
 
-Все примеры отправляются на `POST /api/task-agent`.
+Все запросы в этом разделе отправляются на `POST /api/task-agent` с JSON-телом.
 
-**Получить задачи расписания:**
+**Получить все задачи и события расписания № 1** (`get` по умолчанию возвращает `all`):
 
 ```json
 {
-  "action": "list",
+  "action": "get",
   "schedule_id": 1
 }
 ```
 
-Без `schedule_id` действие `list` вернёт задачи из всех расписаний. Фильтры необязательны: `"priority": "high"` и/или `"status": "pending"`.
+В ответе есть общий массив `items`, отдельные массивы `tasks` и `events`, а также `count`. Каждый элемент содержит `schedule_id`, чтобы было ясно, к какому расписанию он относится.
 
-**Получить одну задачу:**
+**Получить только задачи или только обычные события:**
 
 ```json
 {
   "action": "get",
   "schedule_id": 1,
-  "task_id": 2
+  "item_type": "task"
+}
+```
+
+```json
+{
+  "action": "get",
+  "schedule_id": 1,
+  "item_type": "event"
+}
+```
+
+Допустимые значения `item_type`: `task`, `event`, `all`. Если не передавать `schedule_id`, `get` вернёт элементы из всех расписаний.
+
+**Получить один элемент по ID:** для ID задачи используйте `task_id`, для обычного события — `event_id`. Универсальный `item_id` ищет любой тип элемента, но только внутри указанного расписания.
+
+```json
+{
+  "action": "get",
+  "schedule_id": 1,
+  "task_id": 3
+}
+```
+
+```json
+{
+  "action": "get",
+  "schedule_id": 1,
+  "event_id": 1
+}
+```
+
+Важно: `task_id` — это ID именно задачи, а не расписания и не обычного события. В демонстрационном `schedules.json` ID `1` в расписании № 1 принадлежит событию «Спорт», а ID задачи «Подготовить презентацию» — `3`.
+
+**Для чтения используется действие `get`.** По умолчанию оно возвращает все задачи и обычные события выбранного расписания. Чтобы получить только задачи, передайте `"item_type": "task"`; для обычных событий — `"item_type": "event"`.
+
+```json
+{
+  "action": "get",
+  "schedule_id": 1,
+  "item_type": "task"
+}
+```
+
+### Создать, изменить или удалить задачу
+
+**Создать задачу:**
+
+```json
+{
+  "action": "create",
+  "schedule_id": 1,
+  "title": "Подготовить презентацию",
+  "description": "Сделать слайды проекта",
+  "deadline": "2026-12-10",
+  "priority": "high"
 }
 ```
 
@@ -221,9 +276,8 @@ self.task_agent.run({
 {
   "action": "update",
   "schedule_id": 1,
-  "task_id": 2,
-  "status": "completed",
-  "priority": "medium"
+  "task_id": 3,
+  "status": "completed"
 }
 ```
 
@@ -233,11 +287,50 @@ self.task_agent.run({
 {
   "action": "delete",
   "schedule_id": 1,
-  "task_id": 2
+  "task_id": 3
 }
 ```
 
-`task_id` берётся из ответа при создании задачи. Операции чтения, изменения и удаления требуют и `schedule_id`, и `task_id`, чтобы случайно не затронуть задачу в другом расписании.
+Для изменения и удаления нужны оба ID: `schedule_id` и `task_id`. Приоритеты: `low`, `medium`, `high`; статусы: `pending`, `in_progress`, `completed`.
+
+### Вызов TaskAgent через OrchestratorAgent
+
+Оркестратор теперь передаёт структурированные запросы с `action` в `TaskAgent`. Например:
+
+```python
+from Application.Agents.OrchestratorAgent.Agent import OrchestratorAgent
+
+orchestrator = OrchestratorAgent()
+
+# Получить все задачи и обычные события выбранного расписания.
+result = orchestrator.run({
+    "action": "get",
+    "schedule_id": 1,
+    "item_type": "all",
+})
+
+if result["status"] == "ok":
+    print(result["items"])
+else:
+    print(result["message"])
+```
+
+**Получить одну задачу:**
+
+```python
+result = orchestrator.run({
+    "action": "get",
+    "schedule_id": 1,
+    "task_id": 3,  # ID задачи, не расписания
+})
+
+if result["status"] == "ok":
+    print(result["item"])
+else:
+    print(result["message"])
+```
+
+Это тестирование структурированных действий. Обработка свободного текста вроде «перенеси лекцию на среду» пока не реализована: запрос с полем `command`, но без `action`, вернёт статус `not_implemented`.
 
 ### Проверить сервер через curl
 

@@ -349,8 +349,37 @@ def get_events(schedule_id: int) -> list[dict[str, Any]]:
         return [
             dict(item)
             for item in schedule.get("events", [])
-            if item.get("type") == "event"
+            if item.get("type", "event") == "event"
         ]
+
+
+def get_schedule_items(
+    schedule_id: int | None = None,
+    item_type: str = "all",
+) -> list[dict[str, Any]]:
+    """Return tasks, events, or both, optionally from one schedule.
+
+    Each returned item is a copy and includes its parent ``schedule_id``.
+    The parent ID is not written into the JSON item itself.
+    """
+    if item_type not in {"task", "event", "all"}:
+        raise ValueError("item_type должен быть task, event или all.")
+
+    with _LOCK:
+        schedules = _load_unlocked()
+        if schedule_id is not None:
+            schedules = [_find_schedule(schedules, schedule_id)]
+
+        result: list[dict[str, Any]] = []
+        for schedule in schedules:
+            parent_id = schedule.get("id")
+            for item in schedule.get("events", []):
+                current_type = item.get("type", "event")
+                if item_type != "all" and current_type != item_type:
+                    continue
+                result.append({**item, "schedule_id": parent_id})
+
+        return result
 
 
 def add_event(schedule_id: int, event: dict[str, Any]) -> dict[str, Any]:
@@ -478,34 +507,6 @@ def get_all_tasks(schedule_id: int | None = None) -> list[dict[str, Any]]:
                     tasks.append({**item, "schedule_id": schedule.get("id")})
         return tasks
 
-def get_schedule_items(
-    schedule_id: int | None = None,
-    item_type: str = "all",
-) -> list[dict[str, Any]]:
-    """Возвращает задачи, события или все элементы расписания."""
-
-    if item_type not in {"task", "event", "all"}:
-        raise ValueError(
-            "item_type должен быть task, event или all."
-        )
-
-    with _LOCK:
-        schedules = _load_unlocked()
-
-        if schedule_id is not None:
-            schedules = [_find_schedule(schedules, schedule_id)]
-
-        items = []
-
-        for schedule in schedules:
-            for item in schedule.get("events", []):
-                if item_type == "all" or item.get("type") == item_type:
-                    items.append({
-                        **item,
-                        "schedule_id": schedule["id"],
-                    })
-
-        return items
 
 def get_task(schedule_id: int, task_id: int) -> dict[str, Any]:
     with _LOCK:

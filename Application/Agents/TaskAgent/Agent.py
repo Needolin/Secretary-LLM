@@ -1,126 +1,210 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable, Sequence
 
 from Application.Database import database
 
 
 class TaskAgent:
-    """Управляет задачами, хранящимися в events выбранного расписания."""
+    """Читает любые элементы расписаний и управляет задачами.
+
+    Поддерживаемые действия:
+      - get: получить задачи, события или все элементы;
+      - create/update/delete: создать, изменить или удалить задачу.
+
+    Обычные события можно получать через get, но их создание/изменение/удаление
+    остаётся в функциях событий базы данных и API календаря.
+    """
+
+    ITEM_TYPES = {"task", "event", "all"}
+    TASK_FIELDS = {
+        "title",
+        "description",
+        "deadline",
+        "priority",
+        "status",
+        "day_index",
+        "start_time_in_minutes",
+        "end_time_in_minutes",
+    }
 
     def __init__(self, theme_id_file: str | None = None) -> None:
-        # Параметр сохранён для совместимости с другими агентами проекта.
+        # Параметр оставлен для совместимости с остальными агентами.
         self.theme_id_file = theme_id_file
 
-    @staticmethod
-    def _get_schedule_id(data: dict[str, Any], *, required: bool = True) -> int | None:
-        value = data.get("schedule_id")
-        if value is None:
-            if required:
-                raise ValueError("Не указан schedule_id — выберите расписание.")
-            return None
-        try:
-            schedule_id = int(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("schedule_id должен быть целым числом.") from exc
-        if schedule_id <= 0:
-            raise ValueError("schedule_id должен быть положительным числом.")
-        return schedule_id
-
-    @staticmethod
-    def _get_task_id(data: dict[str, Any]) -> int:
-        value = data.get("task_id")
-        if value is None:
-            raise ValueError("Не указан task_id.")
-        try:
-            task_id = int(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("task_id должен быть целым числом.") from exc
-        if task_id <= 0:
-            raise ValueError("task_id должен быть положительным числом.")
-        return task_id
-
     def run(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Поддерживает действия create, update, delete, get и list."""
+        """Выполняет запрос TaskAgent и возвращает единообразный словарь-ответ."""
         if not isinstance(data, dict):
-            return {"success": False, "message": "Запрос должен быть JSON-объектом."}
+            return self._error("Запрос должен быть JSON-объектом.")
 
         action = data.get("action")
-        actions = {
-            "create": self.create_task,
-            "update": self.update_task,
-            "delete": self.delete_task,
-            "get": self.get_task,
-            "list": self.list_items,
+        if not isinstance(action, str) or not action.strip():
+            return self._error("Не указано действие: get, create, update или delete.")
+        action = action.strip().lower()
+
+        handlers: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+            "get": self._get_items,
+            "create": self._create_task,
+            "update": self._update_task,
+            "delete": self._delete_task,
         }
-        handler = actions.get(action)
+        handler = handlers.get(action)
         if handler is None:
-            return {
-                "success": False,
-                "message": f"Неизвестное действие: {action}. Используйте create, update, delete, get или list.",
-            }
+            return self._error(
+                f"Неизвестное действие: {action}. Используйте get, create, update или delete."
+            )
 
         try:
             return handler(data)
         except ValueError as exc:
-            return {"success": False, "message": str(exc)}
-        except Exception as exc:
-            # Подробности остаются в консоли для отладки, клиент получает понятное сообщение.
+            return self._error(str(exc))
+        except (RuntimeError, OSError) as exc:
+            # Ошибки чтения/записи JSON тоже возвращаем как контролируемый ответ.
             print(f"[TaskAgent] {type(exc).__name__}: {exc}")
-            return {
-                "success": False,
-                "message": "Не удалось выполнить операцию с задачей. Подробности есть в консоли.",
-            }
+            return self._error(f"Ошибка хранилища данных: {exc}")
+        except Exception as exc:
+            # Не раскрываем внутренние детали вызывающему API, но оставляем их в логе.
+            print(f"[TaskAgent] {type(exc).__name__}: {exc}")
+            return self._error("Не удалось выполнить операцию. Подробности есть в консоли.")
 
-    def create_task(self, data: dict[str, Any]) -> dict[str, Any]:
-        schedule_id = self._get_schedule_id(data)
-        title = str(data.get("title", "") or "").strip()
-        if not title:
-            raise ValueError("У задачи должно быть название.")
+    # ------------------------------------------------------------------
+    # Получение данных
+    # ------------------------------------------------------------------
 
-        task_data: dict[str, Any] = {
-            "title": title,
-            "description": data.get("description", ""),
-            "deadline": data.get("deadline"),
-            "priority": data.get("priority", "medium"),
-            "status": data.get("status", "pending"),
+    def _get_items(self, data: dict[str, Any]) -> dict[str, Any]:
+        schedule_id = self._schedule_id(data, required=False)
+        raw_item_type = data.get("item_type", "all")
+        if not isinstance(raw_item_type, str):
+            raise ValueError("item_type должен быть строкой: task, event или all.")
+        item_type = raw_item_type.strip().lower()
+        if item_type not in self.ITEM_TYPES:
+            raise ValueError("item_type должен быть task, event или all.")
+
+        explicit_type = self._explicit_element_type(data)
+        has_element_id = self._has_element_id(data)
+
+        if has_element_id and schedule_id is None:
+            raise ValueError("Для получения одного элемента укажите schedule_id.")
+        if explicit_type is not None and item_type not in {"all", explicit_type}:
+            raise ValueError(
+                f"ID типа {explicit_type} не соответствует item_type='{item_type}'."
+            )
+
+        query_type = explicit_type or item_type
+        items = database.get_schedule_items(
+            schedule_id=schedule_id,
+            item_type=query_type,
+        )
+
+        # Фильтры priority/status имеют смысл только для задач. Не игнорируем
+        # их молча, если пользователь запросил события или всё расписание.
+        if query_type != "task" and any(
+            data.get(field) is not None for field in ("priority", "status")
+        ):
+            raise ValueError("Фильтры priority и status доступны только для item_type='task'.")
+        if query_type == "task":
+            items = self._filter_tasks(items, data)
+
+        if has_element_id:
+            item_id = self._element_id(data)
+            item = next((entry for entry in items if self._same_id(entry.get("id"), item_id)), None)
+            if item is None:
+                kind = explicit_type or (item_type if item_type != "all" else "элемент")
+                raise ValueError(
+                    f"{kind.capitalize()} с ID {item_id} не найден(а)"
+                    + (f" в расписании {schedule_id}." if schedule_id is not None else ".")
+                )
+            return self._items_response([item], item_type=query_type, schedule_id=schedule_id, single=True)
+
+        return self._items_response(items, item_type=item_type, schedule_id=schedule_id)
+
+    @staticmethod
+    def _items_response(
+        items: Sequence[dict[str, Any]],
+        *,
+        item_type: str,
+        schedule_id: int | None,
+        single: bool = False,
+    ) -> dict[str, Any]:
+        tasks = [item for item in items if item.get("type") == "task"]
+        events = [item for item in items if item.get("type", "event") == "event"]
+        result: dict[str, Any] = {
+            "success": True,
+            "item_type": item_type,
+            "schedule_id": schedule_id,
+            "items": items,
+            "tasks": tasks,
+            "events": events,
+            "count": len(items),
         }
-        if "day_index" in data:
-            task_data["day_index"] = data["day_index"]
-        for field in ("start_time_in_minutes", "end_time_in_minutes"):
-            if field in data:
-                task_data[field] = data[field]
+        if single and items:
+            result["item"] = items[0]
+            # Алиасы для уже существующих вызовов, которым нужен один объект.
+            if items[0].get("type") == "task":
+                result["task"] = items[0]
+            else:
+                result["event"] = items[0]
+        return result
 
+    @staticmethod
+    def _filter_tasks(items: Sequence[dict[str, Any]], data: dict[str, Any]) -> Sequence[dict[str, Any]]:
+        priority = data.get("priority")
+        status = data.get("status")
+
+        if priority is not None and priority not in database.VALID_PRIORITIES:
+            raise ValueError("Приоритет должен быть low, medium или high.")
+        if status is not None and status not in database.VALID_STATUSES:
+            raise ValueError("Статус должен быть pending, in_progress или completed.")
+
+        if priority is not None:
+            items = [item for item in items if item.get("priority", "medium") == priority]
+        if status is not None:
+            items = [item for item in items if item.get("status", "pending") == status]
+        return items
+
+    # ------------------------------------------------------------------
+    # Создание, изменение и удаление задач
+    # ------------------------------------------------------------------
+
+    def _create_task(self, data: dict[str, Any]) -> dict[str, Any]:
+        schedule_id = self._schedule_id(data)
+        task_data = {
+            field: data[field]
+            for field in self.TASK_FIELDS
+            if field in data
+        }
+        task_data.setdefault("priority", "medium")
+        task_data.setdefault("status", "pending")
         task = database.create_task(schedule_id, task_data)
         return {
             "success": True,
             "message": "Задача создана.",
             "schedule_id": schedule_id,
-            "task": task,
+            "task": {**task, "schedule_id": schedule_id},
         }
 
-    def update_task(self, data: dict[str, Any]) -> dict[str, Any]:
-        schedule_id = self._get_schedule_id(data)
-        task_id = self._get_task_id(data)
-        editable_fields = (
-            "title", "description", "deadline", "priority", "status",
-            "start_time_in_minutes", "end_time_in_minutes", "day_index",
-        )
-        changes = {field: data[field] for field in editable_fields if field in data}
+    def _update_task(self, data: dict[str, Any]) -> dict[str, Any]:
+        schedule_id = self._schedule_id(data)
+        task_id = self._element_id(data, allowed_keys=("task_id", "item_id"))
+        changes = {
+            field: data[field]
+            for field in self.TASK_FIELDS
+            if field in data
+        }
         if not changes:
-            raise ValueError("Не указаны поля для изменения.")
+            raise ValueError("Не указаны поля для изменения задачи.")
 
         task = database.update_task(schedule_id, task_id, changes)
         return {
             "success": True,
             "message": "Задача обновлена.",
             "schedule_id": schedule_id,
-            "task": task,
+            "task": {**task, "schedule_id": schedule_id},
         }
 
-    def delete_task(self, data: dict[str, Any]) -> dict[str, Any]:
-        schedule_id = self._get_schedule_id(data)
-        task_id = self._get_task_id(data)
+    def _delete_task(self, data: dict[str, Any]) -> dict[str, Any]:
+        schedule_id = self._schedule_id(data)
+        task_id = self._element_id(data, allowed_keys=("task_id", "item_id"))
         database.delete_task(schedule_id, task_id)
         return {
             "success": True,
@@ -129,66 +213,73 @@ class TaskAgent:
             "task_id": task_id,
         }
 
-    def get_task(self, data: dict[str, Any]) -> dict[str, Any]:
-        task_id = data.get("task_id")
-        if task_id is not None:
-            schedule_id = self._get_schedule_id(data)
-            task = database.get_task(schedule_id, self._get_task_id(data))
-            return {"success": True, "schedule_id": schedule_id, "task": task}
-
-        schedule_id = self._get_schedule_id(data, required=False)
-        tasks = self._filter_tasks(database.get_all_tasks(schedule_id), data)
-        return {"success": True, "tasks": tasks, "count": len(tasks)}
-
-    def list_items(self, data: dict[str, Any]) -> dict[str, Any]:
-        schedule_id = self._get_schedule_id(data, required=False)
-
-        item_type = data.get("item_type", "task")
-
-        if item_type not in {"task", "event", "all"}:
-            raise ValueError(
-                "item_type должен быть task, event или all."
-            )
-
-        items = database.get_schedule_items(
-            schedule_id=schedule_id,
-            item_type=item_type,
-        )
-
-        # Фильтрация по статусу и приоритету применима к задачам.
-        if item_type == "task":
-            items = self._filter_tasks(items, data)
-
-        tasks = [
-            item for item in items
-            if item.get("type") == "task"
-        ]
-
-        events = [
-            item for item in items
-            if item.get("type") == "event"
-        ]
-
-        return {
-            "success": True,
-            "item_type": item_type,
-            "items": items,
-            "tasks": tasks,
-            "events": events,
-            "count": len(items),
-        }
+    # ------------------------------------------------------------------
+    # Валидация аргументов
+    # ------------------------------------------------------------------
 
     @staticmethod
-    def _filter_tasks(tasks: list[dict[str, Any]], data: dict[str, Any]) -> list[dict[str, Any]]:
-        priority = data.get("priority")
-        status = data.get("status")
+    def _schedule_id(data: dict[str, Any], *, required: bool = True) -> int | None:
+        value = data.get("schedule_id")
+        # Поддерживаем старые тестовые запросы с id, но рекомендуем schedule_id.
+        if value is None:
+            value = data.get("id")
+        if value is None:
+            if required:
+                raise ValueError("Не указан schedule_id — выберите расписание.")
+            return None
+        if isinstance(value, bool):
+            raise ValueError("schedule_id должен быть целым числом.")
+        try:
+            result = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("schedule_id должен быть целым числом.") from exc
+        if result <= 0:
+            raise ValueError("schedule_id должен быть положительным числом.")
+        return result
 
-        if priority is not None:
-            if priority not in database.VALID_PRIORITIES:
-                raise ValueError("Приоритет должен быть low, medium или high.")
-            tasks = [task for task in tasks if task.get("priority", "medium") == priority]
-        if status is not None:
-            if status not in database.VALID_STATUSES:
-                raise ValueError("Статус должен быть pending, in_progress или completed.")
-            tasks = [task for task in tasks if task.get("status", "pending") == status]
-        return tasks
+    @staticmethod
+    def _has_element_id(data: dict[str, Any]) -> bool:
+        return any(data.get(key) is not None for key in ("item_id", "task_id", "event_id"))
+
+    @staticmethod
+    def _explicit_element_type(data: dict[str, Any]) -> str | None:
+        has_task_id = data.get("task_id") is not None
+        has_event_id = data.get("event_id") is not None
+        if has_task_id and has_event_id:
+            raise ValueError("Укажите только одно поле: task_id или event_id.")
+        if has_task_id:
+            return "task"
+        if has_event_id:
+            return "event"
+        return None
+
+    @staticmethod
+    def _element_id(
+        data: dict[str, Any],
+        *,
+        allowed_keys: tuple[str, ...] = ("item_id", "task_id", "event_id"),
+    ) -> int:
+        value = next((data.get(key) for key in allowed_keys if data.get(key) is not None), None)
+        if value is None:
+            expected = " или ".join(allowed_keys)
+            raise ValueError(f"Не указан ID элемента ({expected}).")
+        if isinstance(value, bool):
+            raise ValueError("ID элемента должен быть целым числом.")
+        try:
+            result = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("ID элемента должен быть целым числом.") from exc
+        if result <= 0:
+            raise ValueError("ID элемента должен быть положительным числом.")
+        return result
+
+    @staticmethod
+    def _same_id(left: Any, right: int) -> bool:
+        try:
+            return int(left) == right
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _error(message: str) -> dict[str, Any]:
+        return {"success": False, "message": message}

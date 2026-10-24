@@ -12,6 +12,3 @@ class ExplanationAgent:
         print("[ExplanationAgent] Получил данные от оркестратора:")
         print(data)
         return {"agent": "ExplanationAgent", "status": "received"}
-
-    def get_answer(self) -> str:
-        return "ExplanationAgent готов к работе."

@@ -12,6 +12,3 @@ class ConflictAgent:
         print("[ConflictAgent] Получил данные от оркестратора:")
         print(data)
         return {"agent": "ConflictAgent", "status": "received"}
-
-    def get_answer(self) -> str:
-        return "ConflictAgent готов к работе."

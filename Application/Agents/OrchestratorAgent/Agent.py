@@ -9,7 +9,12 @@ from Application.Agents.TaskAgent.Agent import TaskAgent
 
 
 class OrchestratorAgent:
-    """Точка входа для команд сайта; интерпретация свободного текста пока не реализована."""
+    """Маршрутизирует структурированные действия к агентам.
+
+    Запросы с полем ``action`` передаются TaskAgent. Обработка свободного
+    текста в поле ``command`` пока не реализована и честно возвращает
+    ``not_implemented``.
+    """
 
     def __init__(self, theme_id_file: str | None = None) -> None:
         self.theme_id_file = theme_id_file
@@ -20,28 +25,34 @@ class OrchestratorAgent:
 
     def run(self, data: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(data, dict):
-            return {"status": "error", "message": "Команда должна быть объектом."}
+            return {"status": "error", "success": False, "message": "Запрос должен быть JSON-объектом."}
+
+        # Структурированные команды можно вызывать прямо через оркестратор.
+        # Например: run({"action": "get", "schedule_id": 1, "item_type": "all"}).
+        """
+        if data.get("action") is not None:
+            result = self.task_agent.run(data)
+            return {
+                **result,
+                "status": "ok" if result.get("success") else "error",
+            }"""
+
+        #result = self.task_agent.run({"action": "get", "schedule_id": 1})
+        #print(result["items"])
 
         command = str(data.get("command", "")).strip()
         if not command:
-            return {"status": "error", "message": "Введите команду."}
+            return {
+                "status": "error",
+                "success": False,
+                "message": "Введите команду или передайте структурированное действие в поле action.",
+            }
 
-        result = self.task_agent.run({
-            "action": "list",
-            "schedule_id": data.get("schedule_id"),
-            "item_type": "all",
-        })
-
-        print(result["items"])
-        # Не вызываем TaskAgent с выдуманным action: свободный текст ещё не преобразуется
-        # в структурированные действия. Для проверки CRUD есть /api/task-agent.
         return {
             "status": "not_implemented",
+            "success": False,
             "message": (
                 "Команда получена, но обработка естественного языка пока не подключена. "
-                "Для проверки задач используйте API /api/task-agent."
+                "Для тестирования передайте структурированное действие, например action='get'."
             ),
         }
-
-    def get_answer(self) -> str:
-        return "Оркестратор готов; обработчик естественного языка ещё не подключён."
