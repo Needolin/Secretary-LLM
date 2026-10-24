@@ -116,6 +116,18 @@ python Application/Site/app.py
 python -m unittest discover -s tests -v
 ```
 
+### Перед первым пушем в командный репозиторий
+
+В корне проекта есть `.gitignore`, который исключает виртуальное окружение, байткод Python и кэши. Если файлы `.pyc` или `__pycache__` уже были добавлены в Git ранее, одного `.gitignore` недостаточно: удалите их из индекса, оставив локальные файлы на диске, затем закоммитьте изменения.
+
+Для Linux/macOS:
+
+```bash
+git ls-files -z | grep -zE '(^|/)__pycache__/|\.py[co]$' | xargs -0 -r git rm --cached --
+```
+
+Перед коммитом также проверьте `git status` и содержимое `Application/Database/schedules.json`: это общий демонстрационный файл, поэтому в нём не должно оставаться случайных личных или отладочных данных.
+
 ## API
 
 Базовый адрес: `http://127.0.0.1:5000`. Для запросов с телом используйте JSON (`Content-Type: application/json`). Запросы можно отправлять через Postman, Insomnia или `curl`.

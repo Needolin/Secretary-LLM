@@ -27,18 +27,14 @@ class OrchestratorAgent:
         if not isinstance(data, dict):
             return {"status": "error", "success": False, "message": "Запрос должен быть JSON-объектом."}
 
-        # Структурированные команды можно вызывать прямо через оркестратор.
-        # Например: run({"action": "get", "schedule_id": 1, "item_type": "all"}).
-        """
+        # Структурированные действия маршрутизируем в TaskAgent.
+        # Например: {"action": "get", "schedule_id": 1, "item_type": "all"}.
         if data.get("action") is not None:
             result = self.task_agent.run(data)
             return {
                 **result,
                 "status": "ok" if result.get("success") else "error",
-            }"""
-
-        #result = self.task_agent.run({"action": "get", "schedule_id": 1})
-        #print(result["items"])
+            }
 
         command = str(data.get("command", "")).strip()
         if not command:

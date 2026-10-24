@@ -151,9 +151,13 @@ class TaskAgent:
         priority = data.get("priority")
         status = data.get("status")
 
-        if priority is not None and priority not in database.VALID_PRIORITIES:
+        if priority is not None and (
+            not isinstance(priority, str) or priority not in database.VALID_PRIORITIES
+        ):
             raise ValueError("Приоритет должен быть low, medium или high.")
-        if status is not None and status not in database.VALID_STATUSES:
+        if status is not None and (
+            not isinstance(status, str) or status not in database.VALID_STATUSES
+        ):
             raise ValueError("Статус должен быть pending, in_progress или completed.")
 
         if priority is not None:
@@ -167,6 +171,7 @@ class TaskAgent:
     # ------------------------------------------------------------------
 
     def _create_task(self, data: dict[str, Any]) -> dict[str, Any]:
+        self._reject_unknown_fields(data, {"action", "schedule_id", "id", *self.TASK_FIELDS})
         schedule_id = self._schedule_id(data)
         task_data = {
             field: data[field]
@@ -184,6 +189,10 @@ class TaskAgent:
         }
 
     def _update_task(self, data: dict[str, Any]) -> dict[str, Any]:
+        self._reject_unknown_fields(
+            data,
+            {"action", "schedule_id", "id", "task_id", "item_id", *self.TASK_FIELDS},
+        )
         schedule_id = self._schedule_id(data)
         task_id = self._element_id(data, allowed_keys=("task_id", "item_id"))
         changes = {
@@ -203,6 +212,9 @@ class TaskAgent:
         }
 
     def _delete_task(self, data: dict[str, Any]) -> dict[str, Any]:
+        self._reject_unknown_fields(
+            data, {"action", "schedule_id", "id", "task_id", "item_id"}
+        )
         schedule_id = self._schedule_id(data)
         task_id = self._element_id(data, allowed_keys=("task_id", "item_id"))
         database.delete_task(schedule_id, task_id)
@@ -229,9 +241,11 @@ class TaskAgent:
             return None
         if isinstance(value, bool):
             raise ValueError("schedule_id должен быть целым числом.")
+        if isinstance(value, float) and not value.is_integer():
+            raise ValueError("schedule_id должен быть целым числом.")
         try:
             result = int(value)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("schedule_id должен быть целым числом.") from exc
         if result <= 0:
             raise ValueError("schedule_id должен быть положительным числом.")
@@ -259,15 +273,20 @@ class TaskAgent:
         *,
         allowed_keys: tuple[str, ...] = ("item_id", "task_id", "event_id"),
     ) -> int:
-        value = next((data.get(key) for key in allowed_keys if data.get(key) is not None), None)
-        if value is None:
+        supplied = [key for key in allowed_keys if data.get(key) is not None]
+        if not supplied:
             expected = " или ".join(allowed_keys)
             raise ValueError(f"Не указан ID элемента ({expected}).")
-        if isinstance(value, bool):
+        if len(supplied) > 1:
+            raise ValueError(
+                "Укажите только одно поле ID: " + ", ".join(supplied) + "."
+            )
+        value = data[supplied[0]]
+        if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
             raise ValueError("ID элемента должен быть целым числом.")
         try:
             result = int(value)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("ID элемента должен быть целым числом.") from exc
         if result <= 0:
             raise ValueError("ID элемента должен быть положительным числом.")
@@ -279,6 +298,14 @@ class TaskAgent:
             return int(left) == right
         except (TypeError, ValueError):
             return False
+
+    @staticmethod
+    def _reject_unknown_fields(data: dict[str, Any], allowed: set[str]) -> None:
+        unknown = sorted(set(data) - allowed)
+        if unknown:
+            raise ValueError(
+                "Неизвестные поля запроса: " + ", ".join(unknown) + "."
+            )
 
     @staticmethod
     def _error(message: str) -> dict[str, Any]:

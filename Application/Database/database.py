@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -107,9 +108,11 @@ def _load_unlocked() -> list[dict[str, Any]]:
 
 
 def _normalise_id(value: Any, field_name: str = "ID") -> int:
+    if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+        raise ValueError(f"{field_name} должен быть целым числом.")
     try:
         result = int(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"{field_name} должен быть целым числом.") from exc
     if result <= 0:
         raise ValueError(f"{field_name} должен быть положительным числом.")
@@ -167,10 +170,15 @@ def _validate_time_range(data: dict[str, Any], *, required: bool) -> tuple[int, 
             "Укажите и start_time_in_minutes, и end_time_in_minutes."
         )
 
+    if any(
+        isinstance(value, bool) or (isinstance(value, float) and not value.is_integer())
+        for value in (start_value, end_value)
+    ):
+        raise ValueError("Время должно быть указано в минутах целыми числами.")
     try:
         start = int(start_value)
         end = int(end_value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("Время должно быть указано в минутах целыми числами.") from exc
 
     if start < 0 or end <= start:
@@ -210,9 +218,11 @@ def _validate_optional_time_fields(
     ):
         if value is None:
             continue
+        if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+            raise ValueError("Время должно быть указано в минутах целыми числами.")
         try:
             minute = int(value)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("Время должно быть указано в минутах целыми числами.") from exc
 
         upper_bound = period_limit if field == "end_time_in_minutes" else (period_limit - 1 if period_limit else None)
@@ -226,9 +236,11 @@ def _validate_optional_time_fields(
 def _validate_task_day_index(value: Any, schedule: dict[str, Any]) -> int | None:
     if value is None:
         return None
+    if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+        raise ValueError("day_index должен быть целым числом.")
     try:
         day_index = int(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("day_index должен быть целым числом.") from exc
     day_count = {"Day": 1, "Week": 7, "Month": 28}.get(schedule.get("period", "Week"), 7)
     if not 0 <= day_index < day_count:
@@ -515,18 +527,34 @@ def get_task(schedule_id: int, task_id: int) -> dict[str, Any]:
         return dict(_find_event(schedule, task_id, event_type="task"))
 
 
+def _validate_deadline(value: Any) -> str | None:
+    """Проверяет дедлайн в формате ISO YYYY-MM-DD; пустое значение очищает дату."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise ValueError("deadline должна быть датой в формате YYYY-MM-DD.")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("deadline должна быть датой в формате YYYY-MM-DD.") from exc
+    if parsed.isoformat() != value:
+        raise ValueError("deadline должна быть датой в формате YYYY-MM-DD.")
+    return value
+
+
 def create_task(schedule_id: int, data: dict[str, Any]) -> dict[str, Any]:
     title = str(data.get("title", "") or "").strip()
     if not title:
         raise ValueError("У задачи должно быть название.")
 
     priority = data.get("priority", "medium")
-    if priority not in VALID_PRIORITIES:
+    if not isinstance(priority, str) or priority not in VALID_PRIORITIES:
         raise ValueError("Приоритет должен быть low, medium или high.")
 
     status = data.get("status", "pending")
-    if status not in VALID_STATUSES:
+    if not isinstance(status, str) or status not in VALID_STATUSES:
         raise ValueError("Статус должен быть pending, in_progress или completed.")
+    deadline = _validate_deadline(data.get("deadline"))
 
     with _LOCK:
         schedules = _load_unlocked()
@@ -539,7 +567,7 @@ def create_task(schedule_id: int, data: dict[str, Any]) -> dict[str, Any]:
             "type": "task",
             "title": title,
             "description": str(data.get("description", "") or "").strip(),
-            "deadline": data.get("deadline"),
+            "deadline": deadline,
             "priority": priority,
             "status": status,
         }
@@ -575,10 +603,12 @@ def update_task(
             updated["title"] = str(changes["title"] or "").strip()
         if not str(updated.get("title", "")).strip():
             raise ValueError("У задачи должно быть название.")
-        if updated.get("priority", "medium") not in VALID_PRIORITIES:
+        if not isinstance(updated.get("priority", "medium"), str) or updated.get("priority", "medium") not in VALID_PRIORITIES:
             raise ValueError("Приоритет должен быть low, medium или high.")
-        if updated.get("status", "pending") not in VALID_STATUSES:
+        if not isinstance(updated.get("status", "pending"), str) or updated.get("status", "pending") not in VALID_STATUSES:
             raise ValueError("Статус должен быть pending, in_progress или completed.")
+        if "deadline" in changes:
+            updated["deadline"] = _validate_deadline(changes["deadline"])
 
         # Значение null сбрасывает одну границу; оставшаяся граница сохраняется.
         time_fields = _validate_optional_time_fields(updated, schedule)
