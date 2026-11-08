@@ -22,3 +22,6 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+
+# Local conversation history (may contain personal information)
+Application/Database/chats.json

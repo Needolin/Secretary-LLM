@@ -1,0 +1,25 @@
+Secretary UI refresh — schedule-centric layout
+
+1. Stop Flask with Ctrl+C.
+2. Make a backup of your current Secretary-LLM folder.
+3. Extract this ZIP into the root of your existing project and allow source files to be replaced.
+4. IMPORTANT: keep your own .env, Application/Database/schedules.json and Application/Database/chats.json. They are not included in this patch.
+5. Run from the project root:
+   python -m pip install -r requirements.txt
+6. Start the app:
+   python Application/Site/app.py
+7. Open http://127.0.0.1:5000.
+
+What's changed:
+- Schedule period is selected once at creation; switching Day/Week/Month is removed.
+- Right-click a schedule to pin/unpin or delete it.
+- The recent-chats sidebar section is removed. The chat is fixed on the right; use the compact dropdown to switch conversations when a schedule has more than one.
+- The timeline is centered. The right panel keeps the assistant available without scrolling the page.
+- New entries have only two visible types: Event (neon line) and Deadline (bright X marker).
+- Both events and deadlines have a custom neon color picker.
+- Old type="task" records are preserved and displayed as deadlines.
+- The top-right Secretary avatar/logo and bottom schedule-create control are removed; schedule creation is available at the top of the left panel.
+
+The migration adds a pinned=false field to older schedules and default neon colors to older entries when schedules.json is loaded. It does not delete or rewrite entry content.
+
+Do not share or commit .env, chats.json, or API secrets.

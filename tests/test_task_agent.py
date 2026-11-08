@@ -135,10 +135,13 @@ class TaskAgentTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["count"], 2)
 
-    def test_orchestrator_reports_free_text_as_not_implemented(self) -> None:
-        result = OrchestratorAgent().run({"command": "Покажи расписание"})
-        self.assertEqual(result["status"], "not_implemented")
+    def test_orchestrator_reports_configuration_error_when_llm_is_unavailable(self) -> None:
+        orchestrator = OrchestratorAgent()
+        with patch.object(orchestrator, "_get_graph", side_effect=RuntimeError("CLOUD_API_KEY is missing")):
+            result = orchestrator.run({"command": "Покажи расписание"})
+        self.assertEqual(result["status"], "configuration_error")
         self.assertFalse(result["success"])
+        self.assertIn("CLOUD_API_KEY", result["message"])
 
 
 if __name__ == "__main__":

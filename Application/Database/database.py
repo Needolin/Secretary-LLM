@@ -14,6 +14,8 @@ VALID_PERIODS = {"Day", "Week", "Month"}
 VALID_PRIORITIES = {"low", "medium", "high"}
 VALID_STATUSES = {"pending", "in_progress", "completed"}
 VALID_EVENT_TYPES = {"event", "task"}
+DEFAULT_EVENT_COLOR = "#4df6d2"
+DEFAULT_DEADLINE_COLOR = "#ff4fd8"
 
 
 # ---------------------------------------------------------------------
@@ -48,6 +50,9 @@ def _load_unlocked() -> list[dict[str, Any]]:
 
     changed = False
     for schedule in schedules:
+        if "pinned" not in schedule or not isinstance(schedule.get("pinned"), bool):
+            schedule["pinned"] = False
+            changed = True
         events = schedule.get("events")
         if events is None:
             schedule["events"] = []
@@ -97,6 +102,14 @@ def _load_unlocked() -> list[dict[str, Any]]:
                 changed = True
             elif event.get("id") != event_id:
                 event["id"] = event_id
+                changed = True
+
+            if event.get("type") == "task":
+                default_color = DEFAULT_DEADLINE_COLOR
+            else:
+                default_color = DEFAULT_EVENT_COLOR
+            if not _is_valid_color(event.get("color")):
+                event["color"] = default_color
                 changed = True
 
             used_ids.add(event_id)
@@ -257,6 +270,24 @@ def _validate_range_in_schedule(time_range: tuple[int, int] | None, schedule: di
         raise ValueError("Время выходит за пределы выбранного расписания.")
 
 
+def _is_valid_color(value: Any) -> bool:
+    if not isinstance(value, str) or len(value) != 7 or not value.startswith("#"):
+        return False
+    try:
+        int(value[1:], 16)
+    except ValueError:
+        return False
+    return True
+
+
+def _validate_color(value: Any, default: str) -> str:
+    if value is None or value == "":
+        return default
+    if not _is_valid_color(value):
+        raise ValueError("Цвет должен быть в формате HEX, например #4df6d2.")
+    return value.lower()
+
+
 # ---------------------------------------------------------------------
 # Расписания
 # ---------------------------------------------------------------------
@@ -308,6 +339,7 @@ def create_schedule(name: str, period: str = "Week") -> dict[str, Any]:
             "id": max(schedule_ids, default=0) + 1,
             "name": name,
             "period": period,
+            "pinned": False,
             "events": [],
         }
         schedules.append(schedule)
@@ -316,11 +348,11 @@ def create_schedule(name: str, period: str = "Week") -> dict[str, Any]:
 
 
 def update_schedule(schedule_id: int, changes: dict[str, Any]) -> dict[str, Any]:
-    allowed_fields = {"name", "period"}
+    allowed_fields = {"name", "pinned"}
     if not changes:
         raise ValueError("Не указаны изменения.")
     if set(changes) - allowed_fields:
-        raise ValueError("Можно менять только name и period.")
+        raise ValueError("Период расписания фиксируется при создании. Можно менять только name и pinned.")
 
     with _LOCK:
         schedules = _load_unlocked()
@@ -332,14 +364,22 @@ def update_schedule(schedule_id: int, changes: dict[str, Any]) -> dict[str, Any]
                 raise ValueError("Название расписания не может быть пустым.")
             schedule["name"] = name
 
-        if "period" in changes:
-            period = changes["period"]
-            if period not in VALID_PERIODS:
-                raise ValueError("Период должен быть Day, Week или Month.")
-            schedule["period"] = period
+        if "pinned" in changes:
+            if not isinstance(changes["pinned"], bool):
+                raise ValueError("pinned должен быть логическим значением.")
+            schedule["pinned"] = changes["pinned"]
 
         _save_unlocked(schedules)
         return schedule
+
+
+def toggle_schedule_pin(schedule_id: int) -> dict[str, Any]:
+    with _LOCK:
+        schedules = _load_unlocked()
+        schedule = _find_schedule(schedules, schedule_id)
+        schedule["pinned"] = not bool(schedule.get("pinned", False))
+        _save_unlocked(schedules)
+        return dict(schedule)
 
 
 def delete_schedule(schedule_id: int) -> None:
@@ -411,6 +451,7 @@ def add_event(schedule_id: int, event: dict[str, Any]) -> dict[str, Any]:
             "type": "event",
             "title": title,
             "description": str(event.get("description", "") or "").strip(),
+            "color": _validate_color(event.get("color"), DEFAULT_EVENT_COLOR),
         }
         new_event.update(time_fields)
         if day_index is not None:
@@ -435,7 +476,7 @@ def update_event(
 ) -> dict[str, Any]:
     allowed_fields = {
         "title", "description", "start_time_in_minutes", "end_time_in_minutes",
-        "day_index",
+        "day_index", "color",
     }
     if not changes or set(changes) - allowed_fields:
         raise ValueError("Укажите допустимые поля для изменения события.")
@@ -455,6 +496,7 @@ def update_event(
         updated = {**events[storage_index], **changes}
         updated["title"] = str(updated.get("title", "") or "").strip()
         updated["description"] = str(updated.get("description", "") or "").strip()
+        updated["color"] = _validate_color(updated.get("color"), DEFAULT_EVENT_COLOR)
         if not updated["title"]:
             raise ValueError("У события должно быть название.")
 
@@ -570,6 +612,7 @@ def create_task(schedule_id: int, data: dict[str, Any]) -> dict[str, Any]:
             "deadline": deadline,
             "priority": priority,
             "status": status,
+            "color": _validate_color(data.get("color"), DEFAULT_DEADLINE_COLOR),
         }
         task.update(time_fields)
         if day_index is not None:
@@ -586,7 +629,7 @@ def update_task(
 ) -> dict[str, Any]:
     allowed_fields = {
         "title", "description", "deadline", "priority", "status",
-        "start_time_in_minutes", "end_time_in_minutes", "day_index",
+        "start_time_in_minutes", "end_time_in_minutes", "day_index", "color",
     }
     if not changes:
         raise ValueError("Не указаны изменения.")
@@ -609,6 +652,8 @@ def update_task(
             raise ValueError("Статус должен быть pending, in_progress или completed.")
         if "deadline" in changes:
             updated["deadline"] = _validate_deadline(changes["deadline"])
+        if "color" in changes:
+            updated["color"] = _validate_color(changes["color"], DEFAULT_DEADLINE_COLOR)
 
         # Значение null сбрасывает одну границу; оставшаяся граница сохраняется.
         time_fields = _validate_optional_time_fields(updated, schedule)

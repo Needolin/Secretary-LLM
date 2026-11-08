@@ -1,343 +1,200 @@
 <!doctype html>
-
 <html lang="ru">
-
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Секретарь — расписания</title>
-
+    <meta name="color-scheme" content="light dark">
+    <title>Секретарь — расписание</title>
+    <script>
+        (() => { try { const t = localStorage.getItem("secretary-theme"); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; } catch (_) {} })();
+    </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
-
 <body>
-    <div class="app">
-        <aside class="sidebar">
+<div class="app-shell">
+    <aside class="sidebar">
+        <a class="brand" href="{{ url_for('index') }}">
+            <span class="brand-mark">✦</span>
+            <span><strong>Секретарь</strong><small>пространство планирования</small></span>
+        </a>
 
-            <a class="brand" href="{{ url_for('index') }}">
-                <span class="logo">С</span>
-                <span>
-                    <strong>Секретарь</strong>
-                    <small>Ваше время под контролем</small>
-                </span>
-            </a>
-
+        <section class="schedules-block">
             <div class="side-heading">
-                <span>Мои расписания</span>
-                <a class="plus" href="#create-schedule" title="Создать расписание">+</a>
+                <div><span class="eyebrow">МОЁ ПРОСТРАНСТВО</span><h2>Расписания</h2></div>
             </div>
-
-            <nav class="schedule-list" aria-label="Список расписаний">
+            <button class="new-schedule-button" type="button" data-open-dialog="schedule-dialog"><span>＋</span> Новое расписание</button>
+            {% if schedules %}
+            <div class="schedule-list" aria-label="Список расписаний">
                 {% for schedule in schedules %}
-                    <a 
-                        class="schedule-item {% if selected and schedule.id == selected.id %}active{% endif %}" 
-                        href="{{ url_for('index', schedule_id=schedule.id, period=schedule.period) }}"
-                    >
-
-                        <span class="schedule-icon">
-                            {% if loop.index0 % 3 == 0 %}▦{% elif loop.index0 % 3 == 1 %}◷{% else %}▤{% endif %}
-                        </span>
-
-                        <span class="schedule-meta">
-                            <span class="schedule-name">{{ schedule.name }}</span>
-                            <span class="schedule-period">{{ period_labels.get(schedule.period, schedule.period) }}</span>
-                        </span>
-
-                    </a>
-
-                {% else %}
-                    <p class="muted side-empty">Расписаний пока нет. Создайте первое ниже.</p>
+                <a class="schedule-item {% if selected and schedule.id == selected.id %}active{% endif %}"
+                   href="{{ url_for('index', schedule_id=schedule.id) }}"
+                   data-schedule-id="{{ schedule.id }}" data-pinned="{{ 'true' if schedule.pinned else 'false' }}">
+                    <span class="schedule-icon">{% if schedule.period == 'Day' %}◷{% elif schedule.period == 'Week' %}▦{% else %}▤{% endif %}</span>
+                    <span class="schedule-meta"><strong class="schedule-name">{{ schedule.name }}</strong><small>{{ period_labels.get(schedule.period, schedule.period) }}</small></span>
+                    {% if schedule.pinned %}<span class="pin-indicator" title="Закреплено">◆</span>{% else %}<span class="schedule-chevron">›</span>{% endif %}
+                </a>
                 {% endfor %}
-
-            </nav>
-
-            <section id="create-schedule" class="create-box">
-
-                <h3>Новое расписание</h3>
-
-                <form action="{{ url_for('create_schedule_form') }}" method="post">
-                    <label for="schedule-name">Название</label>
-
-                    <input 
-                        id="schedule-name"
-                        name="name" 
-                        required maxlength="100" 
-                        placeholder="Например, Учёба"
-                    >
-
-                    <label for="schedule-period">Формат</label>
-                    <select id="schedule-period" name="period">
-                        <option value="Day">День</option>
-                        <option value="Week" selected>Неделя</option>
-                        <option value="Month">Месяц (28 дней)</option>
-                    </select>
-
-                    <button class="button-primary full" type="submit">Создать</button>
-                </form>
-
-            </section>
-
-            <div class="connection">
-                <i></i>
-                <span>Локальный сервер Flask</span>
             </div>
+            {% else %}
+            <div class="empty-schedules"><span>◌</span><strong>Пока пусто</strong><small>Создай первое расписание — его период зафиксируется при создании.</small></div>
+            {% endif %}
+            <p class="sidebar-tip">ПКМ по расписанию — закрепить или удалить</p>
+        </section>
 
-        </aside>
+        <div class="sidebar-bottom">
+            <div class="connection"><i></i><span>GPT-5 Mini · Cloud.ru</span></div>
+            <button class="theme-toggle" type="button" data-theme-toggle><span class="theme-icon">◐</span><span class="theme-label">Тёмная тема</span></button>
+        </div>
+    </aside>
 
-        <main class="main">
-
+    <div class="workspace">
+        <main class="main-content">
             <header class="topbar">
                 <div>
-                    <p class="eyebrow">ПЛАНИРОВАНИЕ</p>
-                    <h1>{{ selected.name if selected else 'Моё расписание' }}</h1>
-                    <p class="muted">{% if selected %}Формат: {{ period_labels.get(period, period) }} · Событий: {{ event_count }} · Задач: {{ task_count }}{% else %}Выберите расписание или создайте новое.{% endif %}</p>
+                    <p class="eyebrow">ПЛАНИРОВАНИЕ И ФОКУС</p>
+                    <h1>{{ selected.name if selected else 'Моё пространство' }}</h1>
+                    {% if selected %}<p class="muted">{{ period_labels.get(schedule_period, schedule_period) }} · {{ event_count }} событий · {{ deadline_count }} дедлайнов</p>
+                    {% else %}<p class="muted">Создай расписание, чтобы начать планировать.</p>{% endif %}
                 </div>
-
-                <div class="avatar" title="Секретарь">С</div>
+                {% if selected %}
+                <div class="quick-actions">
+                    <button class="button-secondary" type="button" data-open-dialog="event-dialog"><span class="neon-line-preview"></span> Событие</button>
+                    <button class="button-primary" type="button" data-open-dialog="deadline-dialog"><span class="neon-cross-preview">×</span> Дедлайн</button>
+                </div>
+                {% endif %}
             </header>
 
             {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-
-            <div class="flash-stack">
-
-                {% for category, message in messages %}
-                <div class="flash {{ category }}">{{ message }}</div>
-                {% endfor %}
-
-            </div>
-
-            {% endif %}
+            {% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}
             {% endwith %}
 
-            <section class="assistant panel">
-                <div class="assistant-title">
-                    <div class="spark">✦</div>
-                    <div>
-                        <h2>Привет! Что сделаем?</h2>
-                        <p class="muted">Поле команды пока демонстрационное: обработчик естественного языка ещё не подключён. Задачи можно проверять через API TaskAgent.</p>
-                    </div>
+            {% if selected %}
+            <section class="schedule-overview">
+                <div class="schedule-section-head">
+                    <div><p class="eyebrow">ОБЗОР ВРЕМЕНИ</p><h2>Таймлайн</h2><p class="muted">События отображаются неоновыми линиями, дедлайны — крестиками. Нажми на маркер, чтобы изменить запись.</p></div>
+                    <div class="period-lock"><span class="lock-icon">⌑</span>{{ period_labels.get(schedule_period, schedule_period) }} · фиксированный формат</div>
                 </div>
-
-                {% if selected %}
-
-                <form action="{{ url_for('command_form') }}" method="post" class="command-form">
-                    <input type="hidden" name="schedule_id" value="{{ selected.id }}">
-                    <input type="hidden" name="period" value="{{ period }}">
-                    <input name="command" required maxlength="2000" placeholder="Обработка свободного текста будет подключена позже">
-                    <button class="button-primary" type="submit">Отправить <span>➜</span></button>
-                </form>
-
-                {% else %}
-
-                <p class="empty-note">Сначала создайте расписание — тогда можно будет отправлять команды.</p>
-
-                {% endif %}
-
-                <small class="hint">
-                    Обработка команд: <code>{{ backend_url }}</code>
-                </small>
-
-            </section>
-
-            <section class="schedule-section">
-
-                <div class="section-head">
-
-                    <div>
-                        <p class="eyebrow">ОБЗОР</p>
-                        <h2>Временная шкала</h2>
-                    </div>
-
-                    {% if selected %}
-
-                    <nav class="view-switch" aria-label="Период">
-
-                        {% for key, label in period_labels.items() %}
-
-                        <a 
-                            class="view-button {% if period == key %}active{% endif %}" 
-                            href="{{ url_for('index', schedule_id=selected.id, period=key) }}"
-                        >{{ label }}</a>
-
-                        {% endfor %}
-
-                    </nav>
-
-                    {% endif %}
-
+                <div class="stats-grid">
+                    <div class="stat-card"><span class="stat-symbol event-symbol">━</span><div><strong>{{ event_count }}</strong><small>Событий</small></div></div>
+                    <div class="stat-card"><span class="stat-symbol deadline-symbol">×</span><div><strong>{{ deadline_count }}</strong><small>Дедлайнов</small></div></div>
+                    <div class="stat-card"><span class="stat-symbol total-symbol">◎</span><div><strong>{{ total_count }}</strong><small>Всего записей</small></div></div>
                 </div>
-
-                <div
-                    class="timeline panel"
-                    id="timeline"
-                    data-schedule-id="{{ selected.id if selected else '' }}"
-                    data-schedule-period="{{ schedule_period if selected else period }}"
-                    data-view-period="{{ period }}"
-                >
-                    {% if selected %}
-                    <div class="timeline-header">
-                        <div class="timeline-label-spacer" aria-hidden="true"></div>
-                        <div class="scale" aria-label="Время суток">
-                            <span style="left: 25%">06:00</span>
-                            <span style="left: 50%">12:00</span>
-                            <span style="left: 75%">18:00</span>
-                            <span style="left: 91.667%">22:00</span>
-                        </div>
-                    </div>
-
-                    <div class="timeline-rows {% if period == 'Month' %}month-rows{% endif %}">
+                <div class="timeline panel" id="timeline" data-schedule-id="{{ selected.id }}" data-schedule-period="{{ schedule_period }}" data-view-period="{{ schedule_period }}">
+                    <div class="timeline-header"><div class="timeline-label-spacer"></div><div class="scale"><span style="left:25%">06:00</span><span style="left:50%">12:00</span><span style="left:75%">18:00</span><span style="left:91.667%">22:00</span></div></div>
+                    <div class="timeline-rows {% if schedule_period == 'Month' %}month-rows{% endif %}">
                         {% for row in rows %}
-                        <div class="timeline-row {% if period == 'Month' %}month-row{% endif %}" data-row-index="{{ row.index }}">
-                            <span class="row-label" title="{{ row.label }}">
-                                <span class="row-label-full">{{ row.label }}</span>
-                                <span class="row-label-short">{{ row.short_label }}</span>
-                            </span>
-                            <div class="row-track" aria-label="{{ row.label }}">
-                                <span class="track-line" aria-hidden="true"></span>
-                                {% for event in row.events %}
-                                <button
-                                    type="button"
-                                    class="timeline-item {% if event.mode == 'range' %}timeline-span{% else %}timeline-square{% endif %} {% if event.type == 'task' %}task-item{% endif %}"
-                                    style="left: {{ event.left_percent }}%;{% if event.mode == 'range' %} width: {{ event.width_percent }}%;{% endif %}"
-                                    data-mode="{{ event.mode }}"
-                                    data-left-percent="{{ event.left_percent }}"
-                                    data-width-percent="{{ event.width_percent }}"
-                                    data-start-minute="{{ event.get('start_time_in_minutes') if event.get('start_time_in_minutes') is not none else '' }}"
-                                    data-end-minute="{{ event.get('end_time_in_minutes') if event.get('end_time_in_minutes') is not none else '' }}"
-                                    data-day-index="{{ event.get('day_index', row.index if row.label != 'Без дня' else '') }}"
-                                    data-id="{{ event.id }}"
-                                    data-type="{{ event.type or 'event' }}"
-                                    data-title="{{ event.title }}"
-                                    data-start="{{ event.start_label }}"
-                                    data-end="{{ event.end_label }}"
-                                    data-description="{{ event.description or '' }}"
-                                    data-deadline="{{ event.deadline_label }}"
-                                    aria-label="{{ event.title }}; начало: {{ event.start_label or 'не задано' }}; конец: {{ event.end_label or 'не задано' }}"
-                                >
-                                    {% if event.mode == 'range' %}
-                                    <span class="timeline-span-line" aria-hidden="true"></span>
-                                    {% else %}
-                                    <span class="timeline-square-shape" aria-hidden="true"></span>
-                                    {% endif %}
+                        <div class="timeline-row {% if schedule_period == 'Month' %}month-row{% endif %}" data-row-index="{{ row.index }}">
+                            <span class="row-label"><span class="row-label-full">{{ row.label }}</span><span class="row-label-short">{{ row.short_label }}</span></span>
+                            <div class="row-track" aria-label="{{ row.label }}"><span class="track-line"></span>
+                                {% for item in row.events %}
+                                <button type="button"
+                                    class="timeline-item {% if item.mode == 'range' %}timeline-span{% elif item.mode == 'deadline' %}deadline-item{% else %}event-marker{% endif %}"
+                                    style="--item-color: {{ item.color }}; left: {{ item.left_percent }}%;{% if item.mode == 'range' %} width: {{ item.width_percent }}%;{% endif %}"
+                                    data-mode="{{ item.mode }}" data-left-percent="{{ item.left_percent }}" data-width-percent="{{ item.width_percent }}"
+                                    data-start-minute="{{ item.get('start_time_in_minutes') if item.get('start_time_in_minutes') is not none else '' }}"
+                                    data-end-minute="{{ item.get('end_time_in_minutes') if item.get('end_time_in_minutes') is not none else '' }}"
+                                    data-day-index="{{ item.get('day_index', row.index if row.label != 'Без даты' else '') }}"
+                                    data-id="{{ item.id }}" data-type="{{ item.type or 'event' }}" data-title="{{ item.title }}"
+                                    data-start="{{ item.start_label }}" data-end="{{ item.end_label }}" data-description="{{ item.description or '' }}"
+                                    data-deadline="{{ item.deadline_label }}" data-color="{{ item.color }}"
+                                    aria-label="{{ 'Дедлайн' if item.type == 'task' else 'Событие' }}: {{ item.title }}">
+                                    {% if item.mode == 'deadline' %}<span class="deadline-cross" aria-hidden="true">×</span>
+                                    {% else %}<span class="timeline-span-line" aria-hidden="true"></span>{% endif %}
                                 </button>
                                 {% endfor %}
                             </div>
                         </div>
                         {% endfor %}
                     </div>
-
-                    <!-- Вертикальные направляющие выбранного события -->
-                    <div class="timeline-guides" id="timeline-guides" aria-hidden="true" hidden>
-                        <span class="timeline-guide timeline-guide-start"
-                              id="timeline-guide-start"></span>
-                        <span class="timeline-guide timeline-guide-end"
-                              id="timeline-guide-end"></span>
-                    </div>
-
+                    <div class="timeline-guides" id="timeline-guides" aria-hidden="true" hidden><span class="timeline-guide timeline-guide-start" id="timeline-guide-start"></span><span class="timeline-guide timeline-guide-end" id="timeline-guide-end"></span></div>
                     <div class="timeline-tooltip" id="timeline-tooltip" role="tooltip" hidden></div>
-                    <div class="timeline-editor" id="timeline-editor" role="dialog" aria-label="Редактирование события" hidden></div>
+                    <div class="timeline-editor" id="timeline-editor" role="dialog" aria-label="Редактирование записи" hidden></div>
                     <div id="timeline-status" role="status" hidden></div>
-                    {% else %}
-                    <div class="empty">Создайте расписание, чтобы увидеть его здесь.</div>
-                    {% endif %}
                 </div>
-                <p class="legend"><span class="legend-event"><i></i> Событие</span><span class="legend-task"><i></i> Задача</span><span class="legend-marker"><i></i> Квадрат — время не назначено или задана только одна граница</span></p>
-
+                <div class="legend"><span><i class="legend-line"></i> Событие</span><span><i class="legend-cross">×</i> Дедлайн</span></div>
             </section>
-
-            {% if selected %}
-
-            <section class="event-editor panel">
-
-                <div class="section-head">
-                    <div>
-                        <p class="eyebrow">РЕДАКТИРОВАНИЕ</p>
-                        <h2>Добавить событие вручную</h2>
-                    </div>
-                </div>
-
-                <form action="{{ url_for('add_event_form') }}" method="post" class="event-form">
-
-                    <input type="hidden" name="schedule_id" value="{{ selected.id }}">
-
-                    <div class="field wide">
-                        <label for="event-title">Название события</label>
-                        <input id="event-title" name="title" required maxlength="160" placeholder="Например, Спорт">
-                    </div>
-
-                    <div class="field wide">
-                        <label for="event-description">Описание (необязательно)</label>
-                        <input id="event-description" name="description" maxlength="500" placeholder="Подготовить форму и воду">
-                    </div>
-
-                    {% if schedule_period != 'Day' %}
-
-                    <div class="field">
-
-                        <label for="event-day">
-
-                            {% if schedule_period == 'Week' %}День недели{% else %}День месяца{% endif %}
-
-                        </label>
-
-                        <select id="event-day" name="day_index">
-
-                            {% for option in day_options %}
-
-                            <option value="{{ option.value }}">
-
-                                {{ option.label }}
-
-                            </option>
-
-                            {% endfor %}
-
-                        </select>
-
-                    </div>
-
-                    {% else %}
-
-                    <input type="hidden" name="day_index" value="0">
-
-                    {% endif %}
-
-                    <div class="field">
-                        <label for="event-start">Начало (необязательно)</label>
-                        <input id="event-start" name="start_time" type="time" value="10:00">
-                    </div>
-
-                    <div class="field">
-                        <label for="event-end">Конец (необязательно)</label>
-                        <input id="event-end" name="end_time" type="time" value="11:00">
-                    </div>
-
-                    <div class="field submit-field">
-                        <label>&nbsp;</label>
-                        <button class="button-primary full" type="submit">Добавить событие</button>
-                    </div>
-
-                </form>
-
-                <p class="fine-print">Можно указать обе границы, только начало, только конец или оставить оба поля пустыми. В последнем случае событие отображается квадратом без назначенного времени.</p>
-
-            </section>
-
-            <section class="danger-zone">
-
-                <form action="{{ url_for('delete_schedule_form', schedule_id=selected.id) }}" method="post" onsubmit="return confirm('Удалить расписание и все его события?');">
-                    <button class="delete-button" type="submit">Удалить это расписание</button>
-                </form>
-
-            </section>
-
+            {% else %}
+            <section class="welcome-empty panel"><div class="welcome-orb">✦</div><h2>Создай своё первое расписание</h2><p>Выбери формат — день, неделю или 28-дневный период. После создания он останется неизменным.</p><button class="button-primary" type="button" data-open-dialog="schedule-dialog">＋ Создать расписание</button></section>
             {% endif %}
-
         </main>
 
+        <aside class="chat-dock">
+            <section class="chat-panel">
+                <header class="chat-panel-head">
+                    <div class="chat-title-wrap"><div><p class="eyebrow">AI-АССИСТЕНТ</p><h2>Секретарь</h2><small>{% if selected %}Работаю с расписанием «{{ selected.name }}»{% else %}Сначала выбери расписание{% endif %}</small></div></div>
+                    {% if selected %}
+                    <div class="chat-head-actions">
+                        {% if selected_chat %}<form action="{{ url_for('delete_chat_form', chat_id=selected_chat.id) }}" method="post" onsubmit="return confirm('Удалить этот диалог и всю его историю?');"><button class="icon-button chat-delete-button" type="submit" title="Удалить диалог">×</button></form>{% endif %}
+                        <form action="{{ url_for('create_chat_form') }}" method="post"><input type="hidden" name="schedule_id" value="{{ selected.id }}"><button class="icon-button" type="submit" title="Новый диалог">＋</button></form>
+                    </div>
+                    {% endif %}
+                </header>
+                {% if selected %}
+                    {% if chats|length > 1 %}
+                    <div class="chat-switcher"><label for="chat-select">ДИАЛОГ</label><select id="chat-select" aria-label="Выбрать диалог">{% for chat in chats %}<option value="{{ chat.id }}" {% if selected_chat and chat.id == selected_chat.id %}selected{% endif %}>{{ chat.title }}</option>{% endfor %}</select></div>
+                    {% endif %}
+                    {% if selected_chat %}
+                    <div class="chat-messages" id="chat-messages" aria-live="polite">
+                        {% if chat_messages %}{% for message in chat_messages %}
+                        <article class="message-row {{ message.role }}">{% if message.role == 'assistant' %}<span class="message-avatar">✦</span>{% endif %}<div class="message-content-wrap"><div class="message-meta"><strong>{% if message.role == 'user' %}Вы{% else %}Секретарь{% endif %}</strong><time>{{ message.created_at[11:16] if message.created_at else '' }}</time></div><div class="message-bubble">{{ message.content }}</div>{% if message.metadata and message.metadata.agents_called %}<div class="agent-trace">Агенты: {% for agent in message.metadata.agents_called %}<span>{{ agent }}</span>{% endfor %}</div>{% endif %}</div>{% if message.role == 'user' %}<span class="message-avatar user-avatar">Я</span>{% endif %}</article>
+                        {% endfor %}{% else %}
+                        <div class="chat-welcome"><span class="welcome-orb">✦</span><strong>С чего начнём?</strong><p>Напиши обычным языком, что нужно добавить, изменить или проверить.</p><div class="suggestions"><button type="button" data-prompt="Покажи моё расписание">Моё расписание</button><button type="button" data-prompt="Проверь мою загруженность">Загруженность</button></div></div>
+                        {% endif %}
+                    </div>
+                    <form action="{{ url_for('chat_message_form', chat_id=selected_chat.id) }}" method="post" class="chat-composer">
+                        <textarea name="command" required maxlength="2000" rows="1" placeholder="Напиши Секретарю…"></textarea>
+                        <button class="button-primary send-button" type="submit" aria-label="Отправить">↗</button>
+                    </form>
+                    <div class="chat-footnote"><span class="status-dot"></span> GPT-5 Mini · Cloud.ru <span>Enter — отправить</span></div>
+                    {% else %}
+                    <div class="chat-empty"><span class="welcome-orb">✦</span><strong>Начни диалог</strong><small>История будет сохранена внутри выбранного расписания.</small><form action="{{ url_for('create_chat_form') }}" method="post"><input type="hidden" name="schedule_id" value="{{ selected.id }}"><button class="button-primary" type="submit">＋ Новый диалог</button></form></div>
+                    {% endif %}
+                {% else %}
+                <div class="chat-empty"><span class="welcome-orb">✦</span><strong>Чат пока недоступен</strong><small>Сначала создай или выбери расписание.</small></div>
+                {% endif %}
+            </section>
+        </aside>
     </div>
+</div>
 
+{% if selected %}
+<dialog class="modal" id="event-dialog">
+    <form action="{{ url_for('add_event_form') }}" method="post" class="modal-form">
+        <input type="hidden" name="schedule_id" value="{{ selected.id }}">
+        <div class="modal-head"><div><p class="eyebrow">НОВАЯ ЗАПИСЬ</p><h2>Событие</h2><small>Неоновая линия на таймлайне</small></div><button type="button" class="icon-button" data-close-dialog>×</button></div>
+        <label>Название<input name="title" maxlength="160" required placeholder="Например, Учёба, тренировка"></label>
+        <label>Описание<input name="description" maxlength="500" placeholder="Необязательно"></label>
+        {% if schedule_period != 'Day' %}<label>{% if schedule_period == 'Week' %}День недели{% else %}День периода{% endif %}<select name="day_index">{% for option in day_options %}<option value="{{ option.value }}">{{ option.label }}</option>{% endfor %}</select></label>{% else %}<input type="hidden" name="day_index" value="0">{% endif %}
+        <div class="field-row"><label>Начало<input type="time" name="start_time" value="10:00" required></label><label>Окончание<input type="time" name="end_time" value="11:00" required></label></div>
+        <label>Неоновый цвет <span class="color-control"><input type="color" name="color" value="#4df6d2"><small>Выбери собственный цвет события</small></span></label>
+        <div class="modal-actions"><button type="button" class="button-secondary" data-close-dialog>Отмена</button><button type="submit" class="button-primary">Добавить событие</button></div>
+    </form>
+</dialog>
+<dialog class="modal" id="deadline-dialog">
+    <form action="{{ url_for('add_deadline_form') }}" method="post" class="modal-form">
+        <input type="hidden" name="schedule_id" value="{{ selected.id }}">
+        <div class="modal-head"><div><p class="eyebrow">НОВАЯ ЗАПИСЬ</p><h2>Дедлайн</h2><small>Яркий крестик в конце выбранного дня</small></div><button type="button" class="icon-button" data-close-dialog>×</button></div>
+        <label>Название<input name="title" maxlength="160" required placeholder="Например, Сдать лабораторную"></label>
+        <label>Описание<input name="description" maxlength="500" placeholder="Необязательно"></label>
+        <label>Дата дедлайна<input type="date" name="deadline" required></label>
+        <label>Неоновый цвет <span class="color-control"><input type="color" name="color" value="#ff4fd8"><small>Цвет крестика можно изменить позже</small></span></label>
+        <div class="modal-actions"><button type="button" class="button-secondary" data-close-dialog>Отмена</button><button type="submit" class="button-primary">Добавить дедлайн</button></div>
+    </form>
+</dialog>
+{% endif %}
+<dialog class="modal" id="schedule-dialog">
+    <form action="{{ url_for('create_schedule_form') }}" method="post" class="modal-form">
+        <div class="modal-head"><div><p class="eyebrow">НОВОЕ ПРОСТРАНСТВО</p><h2>Создать расписание</h2><small>Формат нельзя будет изменить после создания</small></div><button type="button" class="icon-button" data-close-dialog>×</button></div>
+        <label>Название<input name="name" maxlength="100" required placeholder="Например, Университет"></label>
+        <label>Формат расписания<select name="period"><option value="Day">День</option><option value="Week" selected>Неделя</option><option value="Month">Месяц · 28 дней</option></select></label>
+        <div class="modal-actions"><button type="button" class="button-secondary" data-close-dialog>Отмена</button><button type="submit" class="button-primary">Создать расписание</button></div>
+    </form>
+</dialog>
+
+<div class="schedule-context-menu" id="schedule-context-menu" hidden>
+    <button type="button" id="context-pin">◆ <span>Закрепить</span></button>
+    <button type="button" class="context-danger" id="context-delete">× <span>Удалить расписание</span></button>
+</div>
 <script>
 (() => {
     const timeline = document.getElementById("timeline");
@@ -446,8 +303,8 @@
             const card = document.createElement("div");
             card.className = "tooltip-item";
             const kind = document.createElement("span");
-            kind.className = `tooltip-kind ${item.dataset.type === "task" ? "task-kind" : "event-kind"}`;
-            kind.textContent = item.dataset.type === "task" ? "Задача" : "Событие";
+            kind.className = `tooltip-kind ${item.dataset.type === "task" ? "deadline-kind" : "event-kind"}`;
+            kind.textContent = item.dataset.type === "task" ? "Дедлайн" : "Событие";
             const heading = document.createElement("strong");
             heading.textContent = item.dataset.title || "Без названия";
             const time = document.createElement("span");
@@ -556,15 +413,15 @@
             item.style.width = `${widthPercent}%`;
             item.dataset.widthPercent = String(widthPercent);
             item.dataset.mode = "range";
-            item.classList.remove("timeline-square");
+            item.classList.remove("timeline-square", "event-marker");
             item.classList.add("timeline-span");
             item.querySelector(".timeline-span-line") || item.replaceChildren(Object.assign(document.createElement("span"), { className: "timeline-span-line" }));
         } else {
             item.style.width = "15px";
             item.dataset.widthPercent = "0";
             item.dataset.mode = "marker";
-            item.classList.remove("timeline-span");
-            item.classList.add("timeline-square");
+            item.classList.remove("timeline-span", "timeline-square");
+            item.classList.add("event-marker");
             item.querySelector(".timeline-square-shape") || item.replaceChildren(Object.assign(document.createElement("span"), { className: "timeline-square-shape" }));
         }
         track.append(item);
@@ -642,6 +499,7 @@
 
     document.querySelectorAll(".timeline-item").forEach((item) => {
         item.addEventListener("pointerdown", (event) => {
+            if (item.dataset.type === "task") return;
             if (event.button !== undefined && event.button !== 0) return;
             if (!editor.hidden) closeEditor();
             hideTooltip();
@@ -783,80 +641,91 @@
     }
 
     function openEditor(item, clientX, clientY) {
-        if (selectedItem) {
-            selectedItem.classList.remove("is-selected");
-        }
-
+        if (selectedItem) selectedItem.classList.remove("is-selected");
         selectedItem = item;
         item.classList.add("is-selected");
-
         hideTooltip();
         showGuides(item);
         editor.classList.remove("is-collapsed");
         editor.replaceChildren();
+
+        const isDeadline = item.dataset.type === "task";
         const heading = document.createElement("strong");
         heading.className = "timeline-editor-title";
-        heading.textContent = `Редактировать: ${item.dataset.title || "Без названия"}`;
+        heading.textContent = `${isDeadline ? "Дедлайн" : "Событие"}: ${item.dataset.title || "Без названия"}`;
         const close = document.createElement("button");
         close.type = "button";
         close.className = "timeline-editor-close";
         close.textContent = "×";
-        close.setAttribute("aria-label", "Закрыть");
         close.addEventListener("click", closeEditor);
-
-        const collapse = document.createElement("button");
-        collapse.type = "button";
-        collapse.className = "timeline-editor-collapse";
-        collapse.textContent = "Свернуть";
-        collapse.setAttribute("aria-expanded", "true");
-
-        collapse.addEventListener("click", () => {
-            const isCollapsed = editor.classList.toggle("is-collapsed");
-
-            collapse.textContent = isCollapsed ? "Развернуть" : "Свернуть";
-            collapse.setAttribute("aria-expanded", String(!isCollapsed));
-
-            placeFloating(editor, clientX, clientY);
-        });
 
         const top = document.createElement("div");
         top.className = "timeline-editor-head";
-        top.append(heading, collapse, close);
+        top.append(heading, close);
 
         const form = document.createElement("form");
         form.className = "timeline-editor-form";
-        const currentRow = rowIndexForItem(item);
-        const dayField = document.createElement("label");
-        dayField.className = "timeline-editor-field";
-        const dayLabel = document.createElement("span");
-        dayLabel.textContent = schedulePeriod === "Day" ? "День" : schedulePeriod === "Week" ? "День недели" : "День месяца";
-        const daySelect = document.createElement("select");
-        daySelect.name = "day_index";
-        for (let i = 0; i < dayCount; i++) {
-            const option = document.createElement("option");
-            option.value = String(i);
-            option.textContent = dayNames[i];
-            daySelect.append(option);
-        }
-        const savedDay = intOrNull(item.dataset.dayIndex);
-        const initialDay = currentRow < dayCount
-            ? currentRow
-            : savedDay !== null && savedDay >= 0 && savedDay < dayCount ? savedDay : 0;
-        daySelect.value = String(initialDay);
-        dayField.append(dayLabel, daySelect);
-
         const titleField = createField("Название", "title", item.dataset.title || "");
-        const startMinute = intOrNull(item.dataset.startMinute);
-        const endMinute = intOrNull(item.dataset.endMinute);
-        const startField = createField("Начало", "start", formatTimeForDay(startMinute, currentRow), "ЧЧ:ММ");
-        const endField = createField("Конец", "end", formatTimeForDay(endMinute, currentRow, true), "ЧЧ:ММ или 24:00");
-        const hint = document.createElement("small");
+        const colorField = document.createElement("label");
+        colorField.className = "timeline-editor-field color-editor-field";
+        const colorLabel = document.createElement("span");
+        colorLabel.textContent = "Неоновый цвет";
+        const colorInput = document.createElement("input");
+        colorInput.type = "color";
+        colorInput.name = "color";
+        colorInput.value = /^#[0-9a-f]{6}$/i.test(item.dataset.color || "")
+            ? item.dataset.color : (isDeadline ? "#ff4fd8" : "#4df6d2");
+        colorField.append(colorLabel, colorInput);
+
+        let daySelect = null;
+        let startInput = null;
+        let endInput = null;
+        let deadlineInput = null;
+        let extraFields = [];
+        let hint = document.createElement("small");
         hint.className = "timeline-editor-hint";
-        hint.textContent = "Оставь время пустым, чтобы убрать эту границу. Для конца дня можно указать 24:00.";
+
+        if (isDeadline) {
+            const wrapper = document.createElement("label");
+            wrapper.className = "timeline-editor-field";
+            const label = document.createElement("span");
+            label.textContent = "Дата дедлайна";
+            deadlineInput = document.createElement("input");
+            deadlineInput.type = "date";
+            deadlineInput.name = "deadline";
+            deadlineInput.value = item.dataset.deadline || "";
+            wrapper.append(label, deadlineInput);
+            extraFields = [wrapper];
+            hint.textContent = "Крестик отмечает крайний срок в конце выбранного дня.";
+        } else {
+            const currentRow = rowIndexForItem(item);
+            const dayField = document.createElement("label");
+            dayField.className = "timeline-editor-field";
+            const dayLabel = document.createElement("span");
+            dayLabel.textContent = schedulePeriod === "Day" ? "День" : schedulePeriod === "Week" ? "День недели" : "День месяца";
+            daySelect = document.createElement("select");
+            daySelect.name = "day_index";
+            for (let i = 0; i < dayCount; i++) {
+                const option = document.createElement("option");
+                option.value = String(i);
+                option.textContent = dayNames[i];
+                daySelect.append(option);
+            }
+            const savedDay = intOrNull(item.dataset.dayIndex);
+            daySelect.value = String(currentRow < dayCount ? currentRow : (savedDay ?? 0));
+            dayField.append(dayLabel, daySelect);
+
+            const startField = createField("Начало", "start", formatTimeForDay(intOrNull(item.dataset.startMinute), currentRow), "ЧЧ:ММ");
+            const endField = createField("Конец", "end", formatTimeForDay(intOrNull(item.dataset.endMinute), currentRow, true), "ЧЧ:ММ или 24:00");
+            startInput = startField.input;
+            endInput = endField.input;
+            extraFields = [dayField, startField.wrapper, endField.wrapper];
+            hint.textContent = "Цветная линия занимает выбранный интервал времени.";
+        }
+
         const message = document.createElement("p");
         message.className = "timeline-editor-message";
         message.hidden = true;
-
         const actions = document.createElement("div");
         actions.className = "timeline-editor-actions";
         const save = document.createElement("button");
@@ -873,7 +742,7 @@
         cancel.textContent = "Отмена";
         cancel.addEventListener("click", closeEditor);
         actions.append(save, remove, cancel);
-        form.append(dayField, titleField.wrapper, startField.wrapper, endField.wrapper, hint, message, actions);
+        form.append(titleField.wrapper, ...extraFields, colorField, hint, message, actions);
         editor.append(top, form);
         editor.hidden = false;
         placeFloating(editor, clientX, clientY);
@@ -883,19 +752,26 @@
             event.preventDefault();
             message.hidden = true;
             try {
-                const dayIndex = Number(daySelect.value);
-                const startLocal = parseEditorTime(startField.input.value, "Начало", false);
-                const endLocal = parseEditorTime(endField.input.value, "Конец", true);
-                if (startLocal !== null && endLocal !== null && endLocal <= startLocal) {
-                    throw new Error("Время окончания должно быть позже начала.");
-                }
                 const changes = {
                     title: titleField.input.value.trim(),
-                    day_index: dayIndex,
-                    start_time_in_minutes: startLocal === null ? null : dayIndex * 1440 + startLocal,
-                    end_time_in_minutes: endLocal === null ? null : dayIndex * 1440 + endLocal,
+                    color: colorInput.value,
                 };
                 if (!changes.title) throw new Error("Название не должно быть пустым.");
+                if (isDeadline) {
+                    changes.deadline = deadlineInput.value || null;
+                    if (!changes.deadline) throw new Error("Укажите дату дедлайна.");
+                } else {
+                    const dayIndex = Number(daySelect.value);
+                    const startLocal = parseEditorTime(startInput.value, "Начало", false);
+                    const endLocal = parseEditorTime(endInput.value, "Конец", true);
+                    if (startLocal === null || endLocal === null) {
+                        throw new Error("Для события укажите время начала и окончания.");
+                    }
+                    if (endLocal <= startLocal) throw new Error("Время окончания должно быть позже начала.");
+                    changes.day_index = dayIndex;
+                    changes.start_time_in_minutes = dayIndex * 1440 + startLocal;
+                    changes.end_time_in_minutes = dayIndex * 1440 + endLocal;
+                }
                 save.disabled = true;
                 const result = await persistChanges(item, changes);
                 if (!result) throw new Error("Сервер не вернул обновлённую запись.");
@@ -929,7 +805,103 @@
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeEditor(); hideTooltip(); } });
 })();
 </script>
+<script>
+(() => {
+    const root = document.documentElement;
+    const themeButtons = [...document.querySelectorAll("[data-theme-toggle]")];
+    const updateTheme = () => {
+        const dark = root.dataset.theme === "dark";
+        themeButtons.forEach((button) => {
+            const label = button.querySelector(".theme-label");
+            if (label) label.textContent = dark ? "Светлая тема" : "Тёмная тема";
+            button.title = dark ? "Включить светлую тему" : "Включить тёмную тему";
+        });
+    };
+    themeButtons.forEach((button) => button.addEventListener("click", () => {
+        root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+        try { localStorage.setItem("secretary-theme", root.dataset.theme); } catch (_) {}
+        updateTheme();
+    }));
+    updateTheme();
 
+    document.querySelectorAll("[data-open-dialog]").forEach((button) => {
+        button.addEventListener("click", () => document.getElementById(button.dataset.openDialog)?.showModal());
+    });
+    document.querySelectorAll("[data-close-dialog]").forEach((button) => {
+        button.addEventListener("click", () => button.closest("dialog")?.close());
+    });
+    document.querySelectorAll("dialog.modal").forEach((dialog) => {
+        dialog.addEventListener("click", (event) => {
+            if (event.target === dialog) dialog.close();
+        });
+    });
+
+    const chatSelect = document.getElementById("chat-select");
+    if (chatSelect) chatSelect.addEventListener("change", () => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("chat_id", chatSelect.value);
+        window.location.href = url.toString();
+    });
+    document.querySelectorAll("[data-prompt]").forEach((button) => button.addEventListener("click", () => {
+        const textarea = document.querySelector(".chat-composer textarea");
+        if (textarea) { textarea.value = button.dataset.prompt; textarea.focus(); }
+    }));
+
+    const menu = document.getElementById("schedule-context-menu");
+    const pinButton = document.getElementById("context-pin");
+    const deleteButton = document.getElementById("context-delete");
+    let contextScheduleId = null;
+    let contextPinned = false;
+    const closeMenu = () => { if (menu) menu.hidden = true; contextScheduleId = null; };
+    document.querySelectorAll(".schedule-item").forEach((item) => {
+        item.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            contextScheduleId = Number(item.dataset.scheduleId);
+            contextPinned = item.dataset.pinned === "true";
+            pinButton.querySelector("span").textContent = contextPinned ? "Открепить" : "Закрепить";
+            menu.hidden = false;
+            const x = Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 12);
+            const y = Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 12);
+            menu.style.left = `${Math.max(8, x)}px`;
+            menu.style.top = `${Math.max(8, y)}px`;
+        });
+    });
+    if (pinButton) pinButton.addEventListener("click", async () => {
+        if (!contextScheduleId) return;
+        const response = await fetch(`/api/schedules/${contextScheduleId}/pin`, { method: "POST" });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) { alert(result.error || "Не удалось изменить закрепление."); return; }
+        window.location.reload();
+    });
+    if (deleteButton) deleteButton.addEventListener("click", async () => {
+        if (!contextScheduleId) return;
+        if (!confirm("Удалить расписание и все связанные с ним чаты и записи?")) return;
+        const response = await fetch(`/api/schedules/${contextScheduleId}`, { method: "DELETE" });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) { alert(result.error || "Не удалось удалить расписание."); return; }
+        window.location.href = "/";
+    });
+    document.addEventListener("pointerdown", (event) => {
+        if (menu && !menu.contains(event.target)) closeMenu();
+    });
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeMenu(); });
+    window.addEventListener("scroll", closeMenu, true);
+
+    const messages = document.getElementById("chat-messages");
+    if (messages) messages.scrollTop = messages.scrollHeight;
+    const composer = document.querySelector(".chat-composer textarea");
+    if (composer) {
+        composer.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.form.requestSubmit(); }
+        });
+        composer.addEventListener("input", () => { composer.style.height = "auto"; composer.style.height = `${Math.min(composer.scrollHeight, 180)}px`; });
+    }
+    const composerForm = document.querySelector(".chat-composer");
+    if (composerForm) composerForm.addEventListener("submit", () => {
+        const button = composerForm.querySelector("button[type='submit']");
+        if (button) { button.disabled = true; button.textContent = "…"; }
+    });
+})();
+</script>
 </body>
-
 </html>

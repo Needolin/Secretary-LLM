@@ -26,6 +26,7 @@ class TaskAgent:
         "day_index",
         "start_time_in_minutes",
         "end_time_in_minutes",
+        "color",
     }
 
     def __init__(self, theme_id_file: str | None = None) -> None:

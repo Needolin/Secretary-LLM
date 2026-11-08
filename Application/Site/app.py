@@ -25,6 +25,16 @@ from Application.Database.database import (
     get_all_tasks,
     update_item,
     delete_item,
+    toggle_schedule_pin,
+)
+from Application.Database.chat_database import (
+    add_chat_message,
+    create_chat,
+    delete_chat,
+    delete_chats_for_schedule,
+    get_chat,
+    load_chats,
+    toggle_chat_pin,
 )
 
 SITE_DIR = Path(__file__).resolve().parent
@@ -57,13 +67,7 @@ def to_minutes(value: str) -> int:
 
 
 def build_rows(schedule: dict[str, Any], period: str) -> list[dict[str, Any]]:
-    """Подготавливает дорожки по дням и интервалы/маркеры для таймлайна.
-
-    Время хранится в минутах от начала периода расписания. Элемент с обеими
-    корректными границами рисуется отрезком; с одной/без границ — квадратом.
-    Для элементов без времени день определяется по day_index или deadline.
-    Если нет и дня, элемент показывается в строке «Без дня».
-    """
+    """Строит строки выбранного расписания: события — неоновые линии, дедлайны — крестики."""
     if period == "Day":
         labels = ["Сегодня"]
     elif period == "Week":
@@ -83,11 +87,11 @@ def build_rows(schedule: dict[str, Any], period: str) -> list[dict[str, Any]]:
             return None
 
     def date_for_item(item: dict[str, Any]) -> date | None:
-        deadline = item.get("deadline")
-        if not deadline:
+        value = item.get("deadline")
+        if not value:
             return None
         try:
-            return date.fromisoformat(str(deadline)[:10])
+            return date.fromisoformat(str(value)[:10])
         except (TypeError, ValueError):
             return None
 
@@ -96,109 +100,108 @@ def build_rows(schedule: dict[str, Any], period: str) -> list[dict[str, Any]]:
         max_days = {"Day": 1, "Week": 7, "Month": 28}.get(storage_period, 7)
         if day_index is not None and 0 <= day_index < max_days:
             return day_index
-
-        deadline = date_for_item(item)
-        if deadline is None:
+        due = date_for_item(item)
+        if due is None:
             return None
         if storage_period == "Week":
-            return deadline.weekday()
+            return due.weekday()
         if storage_period == "Month":
-            return min(deadline.day - 1, 27)
+            return min(due.day - 1, 27)
         return 0
 
-    has_undated_items = any(
-        optional_int(item.get("start_time_in_minutes")) is None
-        and optional_int(item.get("end_time_in_minutes")) is None
+    has_undated = any(
+        item.get("type", "event") == "task"
         and explicit_day(item) is None
+        and optional_int(item.get("start_time_in_minutes")) is None
+        and optional_int(item.get("end_time_in_minutes")) is None
         for item in raw_items
     )
-    no_day_row_index: int | None = None
-    if has_undated_items and period == storage_period and storage_period in {"Week", "Month"}:
+    no_day_row_index = None
+    if has_undated and storage_period in {"Week", "Month"}:
         no_day_row_index = len(labels)
-        labels.append("Без дня")
+        labels.append("Без даты")
 
     short_names = {
         "Понедельник": "Пн", "Вторник": "Вт", "Среда": "Ср",
         "Четверг": "Чт", "Пятница": "Пт", "Суббота": "Сб",
-        "Воскресенье": "Вс", "Сегодня": "Сегодня", "Без дня": "Без дня",
+        "Воскресенье": "Вс", "Сегодня": "Сегодня", "Без даты": "Без даты",
     }
 
     result: list[dict[str, Any]] = []
     for row_index, label in enumerate(labels):
         row_items: list[dict[str, Any]] = []
         for item in raw_items:
+            is_deadline = item.get("type", "event") == "task"
             start = optional_int(item.get("start_time_in_minutes"))
             end = optional_int(item.get("end_time_in_minutes"))
-            has_start = start is not None
-            has_end = end is not None
-            is_interval = has_start and has_end and end > start
 
             if storage_period == "Day":
                 item_day = 0
-            elif has_start:
-                item_day = start // MINUTES_PER_DAY
-            elif has_end:
-                # Интервал с концом в 24:00 всё ещё относится к предыдущему дню.
-                item_day = max(0, end - 1) // MINUTES_PER_DAY
-            else:
+            elif is_deadline:
                 item_day = explicit_day(item)
+                if item_day is None and start is not None:
+                    item_day = start // MINUTES_PER_DAY
+                elif item_day is None and end is not None:
+                    item_day = max(0, end - 1) // MINUTES_PER_DAY
                 if item_day is None:
                     item_day = no_day_row_index if no_day_row_index is not None else 0
+            elif start is not None:
+                item_day = start // MINUTES_PER_DAY
+            elif end is not None:
+                item_day = max(0, end - 1) // MINUTES_PER_DAY
+            else:
+                item_day = optional_int(item.get("day_index"))
+                if item_day is None:
+                    item_day = 0
 
             if item_day != row_index:
                 continue
 
-            # Для интервала пересчитываем время относительно начала строки.
-            start_local: int | None = None
-            end_local: int | None = None
-            if is_interval:
-                start_local = start if storage_period == "Day" else start - row_index * MINUTES_PER_DAY
-                end_local = end if storage_period == "Day" else end - row_index * MINUTES_PER_DAY
-                is_interval = (
-                    0 <= start_local < MINUTES_PER_DAY
-                    and 0 < end_local <= MINUTES_PER_DAY
-                    and end_local > start_local
-                )
-
-            if is_interval:
-                assert start_local is not None and end_local is not None
-                left_percent = round(start_local / MINUTES_PER_DAY * 100, 4)
-                width_percent = round((end_local - start_local) / MINUTES_PER_DAY * 100, 4)
-                start_label = f"{start_local // 60:02d}:{start_local % 60:02d}"
-                end_label = (
-                    "24:00" if end_local == MINUTES_PER_DAY
-                    else f"{end_local // 60:02d}:{end_local % 60:02d}"
-                )
-                mode = "range"
-            else:
-                # Одна граница: квадрат на известном времени. Без времени —
-                # квадрат в центре линии, чтобы не выдавать 00:00 за реальное время.
-                anchor = start if has_start else end if has_end else None
-                if anchor is None:
-                    anchor_local = MINUTES_PER_DAY // 2
-                elif storage_period == "Day":
-                    anchor_local = anchor
-                else:
-                    anchor_local = anchor - row_index * MINUTES_PER_DAY
-                anchor_local = max(0, min(MINUTES_PER_DAY, anchor_local))
-                left_percent = round(anchor_local / MINUTES_PER_DAY * 100, 4)
+            if is_deadline:
+                # Дата дедлайна отмечается в конце дня; старые записи с одним
+                # временем сохраняют позицию этого времени, а записи без даты
+                # и времени показываются по центру строки «Без даты».
+                mode = "deadline"
                 width_percent = 0
-
-                if has_start:
-                    local_start = start if storage_period == "Day" else start - row_index * MINUTES_PER_DAY
-                    start_label = f"{local_start // 60:02d}:{local_start % 60:02d}"
+                due_date = date_for_item(item)
+                anchor = start if start is not None else end
+                if due_date is not None or (optional_int(item.get("day_index")) is not None and anchor is None):
+                    left_percent = 97.0
+                elif anchor is not None:
+                    local_anchor = anchor if storage_period == "Day" else anchor - row_index * MINUTES_PER_DAY
+                    left_percent = round(max(0, min(MINUTES_PER_DAY, local_anchor)) / MINUTES_PER_DAY * 100, 4)
                 else:
-                    start_label = ""
-
-                if has_end:
-                    local_end = end if storage_period == "Day" else end - row_index * MINUTES_PER_DAY
-                    end_label = (
-                        "24:00" if local_end == MINUTES_PER_DAY
-                        else f"{local_end // 60:02d}:{local_end % 60:02d}"
-                    )
-                else:
-                    end_label = ""
-                mode = "marker"
+                    left_percent = 50.0
+                start_label = "" if start is None else f"{(start % MINUTES_PER_DAY) // 60:02d}:{(start % 60):02d}"
+                end_label = "" if end is None else f"{(end % MINUTES_PER_DAY) // 60:02d}:{(end % 60):02d}"
+            else:
+                valid_range = (
+                    start is not None and end is not None
+                    and end > start
+                    and start // MINUTES_PER_DAY == (end - 1) // MINUTES_PER_DAY
+                )
+                if valid_range:
+                    start_local = start if storage_period == "Day" else start - row_index * MINUTES_PER_DAY
+                    end_local = end if storage_period == "Day" else end - row_index * MINUTES_PER_DAY
+                    if 0 <= start_local < MINUTES_PER_DAY and 0 < end_local <= MINUTES_PER_DAY:
+                        left_percent = round(start_local / MINUTES_PER_DAY * 100, 4)
+                        width_percent = round((end_local - start_local) / MINUTES_PER_DAY * 100, 4)
+                        mode = "range"
+                        start_label = f"{start_local // 60:02d}:{start_local % 60:02d}"
+                        end_label = "24:00" if end_local == MINUTES_PER_DAY else f"{end_local // 60:02d}:{end_local % 60:02d}"
+                    else:
+                        valid_range = False
+                if not valid_range:
+                    anchor = start if start is not None else end
+                    if anchor is None:
+                        anchor_local = MINUTES_PER_DAY // 2
+                    else:
+                        anchor_local = anchor if storage_period == "Day" else anchor - row_index * MINUTES_PER_DAY
+                    left_percent = round(max(0, min(MINUTES_PER_DAY, anchor_local)) / MINUTES_PER_DAY * 100, 4)
+                    width_percent = 0
+                    mode = "marker"
+                    start_label = "" if start is None else f"{(start % MINUTES_PER_DAY) // 60:02d}:{(start % 60):02d}"
+                    end_label = "" if end is None else f"{(end % MINUTES_PER_DAY) // 60:02d}:{(end % 60):02d}"
 
             row_items.append({
                 **item,
@@ -208,6 +211,7 @@ def build_rows(schedule: dict[str, Any], period: str) -> list[dict[str, Any]]:
                 "left_percent": left_percent,
                 "width_percent": width_percent,
                 "deadline_label": str(item.get("deadline") or ""),
+                "color": item.get("color") or ("#ff4fd8" if is_deadline else "#4df6d2"),
             })
 
         result.append({
@@ -218,25 +222,46 @@ def build_rows(schedule: dict[str, Any], period: str) -> list[dict[str, Any]]:
         })
     return result
 
-
-def send_command(schedule: dict[str, Any], command: str) -> tuple[bool, str]:
-    """Передаёт команду локальному оркестратору без HTTP и второго сервера."""
+def execute_command(
+    schedule: dict[str, Any],
+    command: str,
+    chat_history: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Передаёт команду оркестратору и возвращает полный результат выполнения."""
     payload = {
         "schedule_id": schedule["id"],
         "command": command,
         "schedule": schedule,
+        "chat_history": chat_history or [],
     }
     try:
         result = orchestrator.run(payload)
     except Exception as exc:
         app.logger.exception("Ошибка при передаче команды оркестратору")
-        return False, f"Не удалось обработать команду: {exc}"
+        return {
+            "status": "error",
+            "success": False,
+            "message": f"Не удалось обработать команду: {exc}",
+            "agents_called": [],
+        }
 
     if not isinstance(result, dict):
         app.logger.error("OrchestratorAgent вернул неожиданный ответ: %r", result)
-        return False, "Оркестратор вернул некорректный ответ. Подробности есть в консоли."
+        return {
+            "status": "error",
+            "success": False,
+            "message": "Оркестратор вернул некорректный ответ. Подробности есть в консоли.",
+            "agents_called": [],
+        }
+    return result
 
-    return result.get("status") == "ok", str(result.get("message", "Нет сообщения от оркестратора."))
+
+def send_command(schedule: dict[str, Any], command: str) -> tuple[bool, str]:
+    """Совместимость со старыми HTML/API обработчиками команд."""
+    result = execute_command(schedule, command)
+    return result.get("status") == "ok", str(
+        result.get("message", "Нет сообщения от оркестратора.")
+    )
 
 
 @app.get("/")
@@ -253,9 +278,8 @@ def index():
     if selected is None and schedules:
         selected = schedules[0]
 
-    period = request.args.get("period")
-    if period not in PERIOD_LABELS:
-        period = selected.get("period", "Week") if selected else "Week"
+    # Период является частью расписания и выбирается только при его создании.
+    period = selected.get("period", "Week") if selected else "Week"
 
     rows = build_rows(selected, period) if selected else []
     
@@ -267,19 +291,131 @@ def index():
     else:
         day_options = [{"value": i, "label": f"День {i + 1}"} for i in range(28)]
 
+    schedules = sorted(schedules, key=lambda item: (not item.get("pinned", False), item.get("name", "").lower()))
+    chats = load_chats(selected.get("id") if selected else None)
+    for chat in chats:
+        chat["schedule_name"] = selected.get("name", "Расписание") if selected else "Расписание"
+        chat["schedule_period"] = selected.get("period", "Week") if selected else "Week"
+
+    requested_chat_id = request.args.get("chat_id", type=int)
+    selected_chat = next((chat for chat in chats if chat.get("id") == requested_chat_id), None)
+    if selected_chat is None and chats:
+        selected_chat = chats[0]
+
+    chat_messages = selected_chat.get("messages", []) if selected_chat else []
     return render_template(
         "index.html",
-        schedules=schedules, 
-        selected=selected, 
-        period=period,        
-        schedule_period=schedule_period, 
-        period_labels=PERIOD_LABELS, 
+        schedules=schedules,
+        selected=selected,
+        period=period,
+        schedule_period=schedule_period,
+        period_labels=PERIOD_LABELS,
         rows=rows,
         day_options=day_options,
+        chats=chats,
+        selected_chat=selected_chat,
+        chat_messages=chat_messages,
         event_count=sum(1 for item in selected.get("events", []) if item.get("type", "event") == "event") if selected else 0,
-        task_count=sum(1 for item in selected.get("events", []) if item.get("type") == "task") if selected else 0,
-        backend_url="Локальный оркестратор Flask"
+        deadline_count=sum(1 for item in selected.get("events", []) if item.get("type") == "task") if selected else 0,
+        total_count=len(selected.get("events", [])) if selected else 0,
+        backend_url="GPT-5 Mini · Cloud.ru Foundation Models",
     )
+
+
+@app.post("/chats")
+def create_chat_form():
+    schedule_id = request.form.get("schedule_id", type=int)
+    if not schedule_id:
+        flash("Сначала выберите расписание для нового чата.", "error")
+        return redirect(url_for("index"))
+    try:
+        chat = create_chat(schedule_id)
+        schedule = get_schedule(schedule_id)
+        return redirect(url_for(
+            "index",
+            schedule_id=schedule_id,
+            period=schedule.get("period", "Week"),
+            chat_id=chat["id"],
+        ))
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("index", schedule_id=schedule_id))
+
+
+@app.post("/chats/<int:chat_id>/pin")
+def pin_chat_form(chat_id: int):
+    try:
+        chat = toggle_chat_pin(chat_id)
+        schedule = get_schedule(chat["schedule_id"])
+        return redirect(url_for(
+            "index",
+            schedule_id=chat["schedule_id"],
+            period=schedule.get("period", "Week"),
+            chat_id=chat_id,
+        ))
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("index"))
+
+
+@app.post("/chats/<int:chat_id>/delete")
+def delete_chat_form(chat_id: int):
+    try:
+        chat = get_chat(chat_id)
+        schedule_id = chat["schedule_id"]
+        delete_chat(chat_id)
+        flash("Чат удалён.", "success")
+        schedule = get_schedule(schedule_id)
+        return redirect(url_for(
+            "index",
+            schedule_id=schedule_id,
+            period=schedule.get("period", "Week"),
+        ))
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("index"))
+
+
+@app.post("/chats/<int:chat_id>/messages")
+def chat_message_form(chat_id: int):
+    command = request.form.get("command", "").strip()
+    try:
+        chat = get_chat(chat_id)
+        schedule = get_schedule(chat["schedule_id"])
+        if not command:
+            raise ValueError("Введите сообщение.")
+
+        # История перед текущей репликой, чтобы LLM могла понимать продолжение диалога.
+        history = [
+            {"role": message.get("role"), "content": message.get("content", "")}
+            for message in chat.get("messages", [])[-8:]
+            if message.get("role") in {"user", "assistant"}
+        ]
+        add_chat_message(chat_id, "user", command)
+        result = execute_command(schedule, command, history)
+        answer = str(result.get("message", "Не удалось получить ответ от оркестратора."))
+        add_chat_message(
+            chat_id,
+            "assistant",
+            answer,
+            metadata={
+                "status": result.get("status", "unknown"),
+                "intent": result.get("intent"),
+                "agents_called": result.get("agents_called", []),
+            },
+        )
+    except ValueError as exc:
+        flash(str(exc), "error")
+    except RuntimeError as exc:
+        app.logger.exception("Ошибка при обработке сообщения чата")
+        flash(str(exc), "error")
+
+    return redirect(url_for(
+        "index",
+        schedule_id=chat.get("schedule_id") if "chat" in locals() else None,
+        period=schedule.get("period", "Week") if "schedule" in locals() else None,
+        chat_id=chat_id,
+    ))
 
 
 @app.post("/schedules")
@@ -300,11 +436,21 @@ def create_schedule_form():
         return redirect(url_for("index"))
 
 
+@app.post("/schedules/<int:schedule_id>/pin")
+def pin_schedule_form(schedule_id: int):
+    try:
+        toggle_schedule_pin(schedule_id)
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("index", schedule_id=schedule_id))
+
+
 @app.post("/schedules/<int:schedule_id>/delete")
 def delete_schedule_form(schedule_id: int):
     try:
         delete_schedule(schedule_id)
-        flash("Расписание удалено.", "success")
+        delete_chats_for_schedule(schedule_id)
+        flash("Расписание и связанные чаты удалены.", "success")
     except ValueError as exc:
         flash(str(exc), "error")
 
@@ -334,11 +480,14 @@ def add_event_form():
             "title": request.form.get("title", "").strip(),
             "description": request.form.get("description", "").strip(),
             "day_index": day_index,
+            "color": request.form.get("color", "#4df6d2").strip(),
         }
 
         start = to_minutes(start_value) if start_value else None
         end = to_minutes(end_value) if end_value else None
-        if start is not None and end is not None and end <= start:
+        if start is None or end is None:
+            raise ValueError("Для события укажите время начала и окончания.")
+        if end <= start:
             raise ValueError("Время окончания должно быть позже времени начала.")
         if start is not None:
             event_data["start_time_in_minutes"] = day_index * MINUTES_PER_DAY + start
@@ -356,7 +505,38 @@ def add_event_form():
 
     except (ValueError, TypeError) as exc:
         flash(str(exc), "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("index", schedule_id=raw_id or None))
+
+
+@app.post("/deadlines")
+def add_deadline_form():
+    schedule_id = request.form.get("schedule_id", type=int)
+    try:
+        if not schedule_id:
+            raise ValueError("Сначала выберите расписание.")
+        get_schedule(schedule_id)
+        title = request.form.get("title", "").strip()
+        due_date = request.form.get("deadline", "").strip()
+        description = request.form.get("description", "").strip()
+        color = request.form.get("color", "#ff4fd8").strip()
+        if not title:
+            raise ValueError("У дедлайна должно быть название.")
+        if not due_date:
+            raise ValueError("Укажите дату дедлайна.")
+        result = task_agent.run({
+            "action": "create",
+            "schedule_id": schedule_id,
+            "title": title,
+            "description": description,
+            "deadline": due_date,
+            "color": color,
+        })
+        if not result.get("success"):
+            raise ValueError(result.get("message", "Не удалось создать дедлайн."))
+        flash("Дедлайн добавлен.", "success")
+    except (ValueError, TypeError) as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("index", schedule_id=schedule_id))
 
 
 @app.post("/commands")
@@ -425,6 +605,24 @@ def api_command():
     
     ok, message = send_command(schedule, command)
     return jsonify({"message": message, "ok": ok}), 200 if ok else 501
+
+
+@app.post("/api/schedules/<int:schedule_id>/pin")
+def api_toggle_schedule_pin(schedule_id: int):
+    try:
+        return jsonify(toggle_schedule_pin(schedule_id))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+
+@app.delete("/api/schedules/<int:schedule_id>")
+def api_delete_schedule(schedule_id: int):
+    try:
+        delete_schedule(schedule_id)
+        delete_chats_for_schedule(schedule_id)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+    return jsonify({"success": True})
 
 
 @app.get("/api/schedules/<int:schedule_id>")

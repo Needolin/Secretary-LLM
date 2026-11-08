@@ -1,72 +1,29 @@
 [
   {
-    "id": 1,
-    "name": "ДА?",
-    "period": "Day",
+    "id": 4,
+    "name": "МИФИ 11 неделя",
+    "period": "Week",
+    "pinned": false,
     "events": [
       {
         "id": 1,
         "type": "event",
-        "title": "Спорт",
+        "title": "Сдать Дот",
         "description": "",
-        "day_index": 0,
-        "start_time_in_minutes": 120,
-        "end_time_in_minutes": 600
+        "color": "#380dd3",
+        "day_index": 1,
+        "start_time_in_minutes": 2520,
+        "end_time_in_minutes": 2580
       },
       {
         "id": 2,
-        "type": "event",
-        "title": "ТЫЦ",
-        "description": "п",
-        "day_index": 0,
-        "start_time_in_minutes": 660,
-        "end_time_in_minutes": 720
-      },
-      {
-        "id": 3,
         "type": "task",
-        "title": "Подготовить презентацию",
-        "description": "Сделать слайды для проекта",
-        "deadline": "2026-10-28",
-        "priority": "high",
+        "title": "Сдача презентации",
+        "description": "",
+        "deadline": "2026-11-09",
+        "priority": "medium",
         "status": "pending",
-        "day_index": 0,
-        "start_time_in_minutes": 780,
-        "end_time_in_minutes": 1320
-      }
-    ]
-  },
-  {
-    "id": 2,
-    "name": "Расписание 2",
-    "period": "Week",
-    "events": [
-      {
-        "id": 1,
-        "type": "event",
-        "title": "СПОРт",
-        "description": "нужно накачаться",
-        "day_index": 3,
-        "start_time_in_minutes": 4860,
-        "end_time_in_minutes": 5160
-      }
-    ]
-  },
-  {
-    "id": 3,
-    "name": "Тест таймлайна",
-    "period": "Week",
-    "events": [
-      {
-        "id": 1,
-        "type": "task",
-        "title": "Задача только с дедлайном",
-        "description": "Проверяем автоматическое определение дня",
-        "deadline": "2026-10-28",
-        "priority": "high",
-        "status": "pending",
-        "day_index": 2,
-        "start_time_in_minutes": 3420
+        "color": "#ff4fd8"
       }
     ]
   }

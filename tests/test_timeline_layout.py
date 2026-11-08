@@ -87,13 +87,13 @@ class TimelineLayoutTests(unittest.TestCase):
             rows[0]["events"][0]["left_percent"],
             rows[0]["events"][1]["left_percent"] + rows[0]["events"][1]["width_percent"],
         )
-        self.assertEqual(rows[0]["events"][2]["mode"], "marker")
+        self.assertEqual(rows[0]["events"][2]["mode"], "deadline")
         self.assertEqual(rows[0]["events"][2]["start_label"], "15:00")
         self.assertEqual(rows[0]["events"][2]["end_label"], "")
         self.assertEqual(rows[2]["events"][0]["title"], "Сдать отчёт")  # Deadline is Wednesday.
-        self.assertEqual(rows[-1]["label"], "Без дня")
+        self.assertEqual(rows[-1]["label"], "Без даты")
         self.assertEqual(rows[-1]["events"][0]["title"], "Без даты")
-        self.assertEqual(rows[-1]["events"][0]["mode"], "marker")
+        self.assertEqual(rows[-1]["events"][0]["mode"], "deadline")
         self.assertEqual(rows[-1]["events"][0]["left_percent"], 50.0)
 
     def test_task_agent_can_create_task_with_one_time_boundary(self) -> None:
@@ -178,7 +178,7 @@ class TimelineLayoutTests(unittest.TestCase):
         rows = load_build_rows()(database.get_schedule(schedule["id"]), "Week")
         self.assertEqual(rows[3]["label"], "Четверг")
         self.assertEqual(rows[3]["events"][0]["id"], task["id"])
-        self.assertEqual(rows[3]["events"][0]["mode"], "marker")
+        self.assertEqual(rows[3]["events"][0]["mode"], "deadline")
 
 
     def test_update_and_delete_item_use_ids_for_both_types(self) -> None:
