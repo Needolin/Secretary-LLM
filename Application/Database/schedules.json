@@ -26,5 +26,34 @@
         "color": "#ff4fd8"
       }
     ]
+  },
+  {
+    "id": 5,
+    "name": "Защита",
+    "period": "Day",
+    "pinned": false,
+    "events": [
+      {
+        "id": 2,
+        "type": "task",
+        "title": "защита проекта",
+        "description": "",
+        "deadline": null,
+        "priority": "medium",
+        "status": "pending",
+        "color": "#ff4fd8",
+        "start_time_in_minutes": 1175
+      },
+      {
+        "id": 3,
+        "type": "task",
+        "title": "соединить ветки",
+        "description": "",
+        "deadline": "2026-11-10",
+        "priority": "medium",
+        "status": "pending",
+        "color": "#ff4fd8"
+      }
+    ]
   }
 ]
